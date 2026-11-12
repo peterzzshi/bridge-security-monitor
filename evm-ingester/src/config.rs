@@ -75,8 +75,8 @@ mod tests {
             ("DAPR_HOST", "evm-ingester-dapr"),
             ("DAPR_HTTP_PORT", "3500"),
             ("PUBSUB_NAME", "kafka-pubsub"),
-            ("TOPIC_TRADING", "bridge-transfer-events"),
-            ("TOPIC_LIQUIDITY", "bridge-supply-events"),
+            ("TOPIC_TRANSFER", "bridge-transfer-events"),
+            ("TOPIC_SUPPLY", "bridge-supply-events"),
             ("TOPIC_DLQ", "bridge-dlq-events"),
             ("ETH_RPC_URL", "wss://eth-sepolia.example.com"),
         ]

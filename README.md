@@ -23,12 +23,6 @@ Five windowed pipelines, each emitting to its own Kafka topic as an Avro alert:
 
 ## Pipeline
 
-```
-Ethereum ─┐                          ┌─ 5 alert topics ─┐
-          ├─ Rust ingesters ─ Kafka ─┤                  ├─ Dapr ─ Kotlin service ─ Redis + WebSocket
-Solana  ──┘   (via Dapr)   3 topics  └─ Flink 5 jobs ──┘        (subscription)     (recent alerts, live)
-```
-
 | Component | Language | Role |
 |---|---|---|
 | `evm-ingester/` | Rust | `eth_subscribe` logs from Ethereum; 12-block depth finality |
@@ -39,7 +33,7 @@ Solana  ──┘   (via Dapr)   3 topics  └─ Flink 5 jobs ──┘        
 
 `common/` is the shared Rust crate: config, Avro encoding, CloudEvents envelope, retry, finality
 buffer, publisher. Event and alert schemas live once in root `schemas/` and are codegen'd by both the
-Maven and Gradle builds.
+Maven and Gradle builds. See [ARCHITECTURE.md](ARCHITECTURE.md) for the flow between them.
 
 ## Quick Start
 
@@ -77,8 +71,4 @@ which they reliably do.
 - [E2E-TEST.md](E2E-TEST.md) — end-to-end verification walkthrough
 - [AGENT.md](AGENT.md) — conventions and commands
 
-## Build Individual Components
-
-- `evm-ingester/README.md`, `solana-ingester/README.md`
-- `aggregator/README.md`
-- `alerting-service/README.md`
+Each component directory has its own `README.md`.

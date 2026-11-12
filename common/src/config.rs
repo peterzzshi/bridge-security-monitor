@@ -32,8 +32,8 @@ pub struct DaprConfig {
 
 #[derive(Debug, Clone)]
 pub struct TopicsConfig {
-    pub trading: String,
-    pub liquidity: String,
+    pub transfer: String,
+    pub supply: String,
     pub dlq: String,
 }
 
@@ -57,8 +57,8 @@ impl SharedConfig {
                 pubsub_name: required(get_env, "PUBSUB_NAME")?,
             },
             topics: TopicsConfig {
-                trading: required(get_env, "TOPIC_TRADING")?,
-                liquidity: required(get_env, "TOPIC_LIQUIDITY")?,
+                transfer: required(get_env, "TOPIC_TRANSFER")?,
+                supply: required(get_env, "TOPIC_SUPPLY")?,
                 dlq: required(get_env, "TOPIC_DLQ")?,
             },
         })
@@ -111,8 +111,8 @@ mod tests {
         ("DAPR_HOST", "sidecar"),
         ("DAPR_HTTP_PORT", "3500"),
         ("PUBSUB_NAME", "kafka-pubsub"),
-        ("TOPIC_TRADING", "trading"),
-        ("TOPIC_LIQUIDITY", "liquidity"),
+        ("TOPIC_TRANSFER", "transfer"),
+        ("TOPIC_SUPPLY", "supply"),
         ("TOPIC_DLQ", "dlq"),
     ];
 

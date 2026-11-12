@@ -81,11 +81,8 @@ F2 (Supply Tracking) reads only `bridge-supply-events`; F1 and F5 read only
 | Exploit Detection | union | `bridgeAddress:chain` | 60-s session | `bridge-alerts-exploit-detection` / `ExploitDetectionAlert` |
 | Reentrancy | transfer | `transactionHash` | 5-s tumbling | `bridge-alerts-reentrancy` / `ReentrancyAlert` |
 
-Window lengths and the watermark delay are required env vars with no defaults
-(`TRANSFER_WINDOW_SECONDS`, `SUPPLY_WINDOW_SECONDS`, `FLOW_WINDOW_SECONDS`,
-`EXPLOIT_SESSION_GAP_SECONDS`, `REENTRANCY_WINDOW_SECONDS`, `WATERMARK_DELAY_SECONDS`); the values
-above are the ones in `docker-compose.yml`. Every key is a serialized String, so
-`(chain, bridgeAddress)` is a composite key made of two fields, not a Flink tuple.
+Every key is a serialized String, so `(chain, bridgeAddress)` is a composite key made of two fields,
+not a Flink tuple.
 
 Cross-Chain Flow is the one pipeline keyed on the bridge alone: it exists to compare chains, so
 scoping it per chain would defeat it. Its alert schema therefore carries no `chain` field.
@@ -163,8 +160,7 @@ service decodes them from the CloudEvent `data_base64` field.
 Sinks use `DeliveryGuarantee.AT_LEAST_ONCE`, not exactly-once: two-phase-commit sinks require Kafka
 transaction support and idle-transaction timeouts, and the at-least-once path keeps a failed sink from
 holding back checkpoints indefinitely. The consequence is explicit — a restart can replay a window and
-emit the same alert twice. Consumers deduplicate on `(alertType, bridgeAddress, windowStart, windowEnd)`.
-See `GAPS.md` for the operational caveat that a duplicate is not yet suppressed at the source.
+emit the same alert twice, and nothing downstream deduplicates it. See `GAPS.md`.
 
 Checkpointing runs every `CHECKPOINT_INTERVAL_SECONDS`; restarts are `fixed-delay`, bounded by
 `RESTART_MAX_ATTEMPTS` and `RESTART_DELAY_SECONDS`, so a permanently failing sink ends as a failed job
@@ -200,9 +196,3 @@ Session window (60-s gap), evaluated per `(bridge, chain)`:
 
 Patterns 4–6 (unusual size via stddev, new address via block metadata, cross-chain correlation via
 message hash) need data the pipeline does not have yet. See `GAPS.md`.
-
-## Known Gaps
-
-`GAPS.md` is authoritative; the headline items are unpopulated token symbols, no message hash, 3/6
-exploit patterns, and — the one that breaks a fresh deployment — the five alert topics are not
-provisioned by `kafka-init`.

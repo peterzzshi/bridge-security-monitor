@@ -1,9 +1,7 @@
 # Data Model
 
-Event and alert schemas for the bridge security pipeline. All seven `.avsc` files live in root
-`schemas/` and are the single source of truth: the Maven build (`aggregator`) and the Gradle build
-(`alerting-service`) both codegen from that directory, and `common/` embeds the same files for the
-Rust ingesters.
+The seven `.avsc` files in root `schemas/` are the single source of truth: the Maven and Gradle
+builds both codegen from that directory, and `common/` embeds the same files for the Rust ingesters.
 
 ## Ingest Events
 
@@ -31,8 +29,6 @@ Value movement across bridges.
 | destinationChain / sourceChain | string? | Cross-chain routing |
 | messageHash / sequenceNumber | string? / long? | Set for LayerZero nonce; Wormhole VAA hash not computed |
 
-**Retention**: 7 days (provisioned in `kafka-init`)
-
 ### BridgeSupplyEvent — `bridge-supply-events` (19 fields, 30-day retention)
 
 Wrapped-token supply changes.
@@ -51,8 +47,6 @@ Wrapped-token supply changes.
 | amount | decimal | Token amount |
 | sourceChain | string? | Originating chain |
 | messageHash | string? | Not computed |
-
-**Retention**: 30 days
 
 Note: the Solana ingester currently emits no `burn` events — `solana-bridges.toml` declares only
 lock/unlock/mint instructions. Supply burns are only detectable on EVM. Tracked in `GAPS.md`.
@@ -79,12 +73,7 @@ only ever populates one token, and both are null today.
 
 ## Data Flow
 
-```
-Chains → Rust ingester → Dapr → Kafka (2 topics) → Flink (5 pipelines) → Kafka (5 alert topics)
-       → Dapr subscription → Ktor service → Redis (recent alerts) + WebSocket (live)
-```
-
-**Finality**: EVM 12-block depth with dedupe cache; Solana finalized-slot polling.
+Ordering and validation rules that the schemas alone do not convey.
 
 **Ordering**: `logIndex` orders events within a transaction. Across transactions, event-time windows
 with a 5 s bounded-out-of-orderness watermark absorb reordering; windows close on window-end, not on
@@ -101,10 +90,3 @@ Redis holds the most recent `ALERT_RETENTION_LIMIT` (default 100) alerts per
 entries are added with `ZADD ... GT` so a replayed window cannot overwrite a newer one, and
 `ZREMRANGEBYRANK` trims the oldest. Cross-Chain Flow alerts are stored under the literal chain
 segment `cross-chain` because they span chains.
-
-## Known Limitations
-
-- Token symbols always null (no enrichment implemented)
-- Message hash not computed for Wormhole (cross-chain correlation impossible)
-- No Solana burn events, so supply drains on Solana are invisible
-- DLQ topic exists but the aggregator drops deserialization failures instead of routing to it
