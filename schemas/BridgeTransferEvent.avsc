@@ -1,7 +1,7 @@
 {
   "type": "record",
   "name": "BridgeTransferEvent",
-  "namespace": "com.web3analytics.bridge",
+  "namespace": "io.github.peterzzshi.bridge.schema.event",
   "doc": "A value movement through a bridge. `direction` discriminates a lock (value entering the bridge) from an unlock (value released), so consumers branch on an explicit field instead of on the record name.",
   "fields": [
     {"name": "eventId", "type": "string"},

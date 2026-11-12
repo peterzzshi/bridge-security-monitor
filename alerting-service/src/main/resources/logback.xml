@@ -5,7 +5,7 @@
         </encoder>
     </appender>
 
-    <logger level="INFO" name="com.web3analytics"/>
+    <logger level="INFO" name="io.github.peterzzshi.bridge"/>
     <logger level="INFO" name="io.ktor"/>
     <logger level="WARN" name="io.netty"/>
 

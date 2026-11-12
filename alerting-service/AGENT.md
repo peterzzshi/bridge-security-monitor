@@ -3,7 +3,7 @@
 Extends root `AGENT.md`.
 
 - Idiom: follow *Effective Kotlin* (Moskała); prefer immutable data classes.
-- Package layout is flat under `com.web3analytics.alerting.*`: `config`, `consumer`, `model`, `store`,
+- Package layout is flat under `io.github.peterzzshi.bridge.alerting.*`: `config`, `consumer`, `model`, `store`,
   `websocket`. Keep new packages one level deep.
 - Alerts are a sealed interface (`Alert`) with one implementation per Avro alert type; dispatch with
   `when` over the sealed hierarchy rather than string matching where the type is known. Wire-format

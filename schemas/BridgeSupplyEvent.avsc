@@ -1,7 +1,7 @@
 {
   "type": "record",
   "name": "BridgeSupplyEvent",
-  "namespace": "com.web3analytics.bridge",
+  "namespace": "io.github.peterzzshi.bridge.schema.event",
   "doc": "A change to wrapped-token supply. `operation` discriminates a mint (supply created on this side) from a burn (supply destroyed before release), so consumers branch on an explicit field instead of on the record name.",
   "fields": [
     {"name": "eventId", "type": "string"},

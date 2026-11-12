@@ -5,7 +5,7 @@ plugins {
     id("com.github.davidmc24.gradle.plugin.avro") version "1.9.1"
 }
 
-group = "com.web3analytics"
+group = "io.github.peterzzshi.bridge"
 version = "0.1.0"
 
 repositories {
@@ -45,7 +45,7 @@ dependencies {
 }
 
 application {
-    mainClass.set("com.web3analytics.alerting.ApplicationKt")
+    mainClass.set("io.github.peterzzshi.bridge.alerting.ApplicationKt")
 }
 
 kotlin {

@@ -13,11 +13,11 @@ spec:
 
     # Consumer group for this application
     - name: consumerGroup
-      value: "analytics-consumer-group"
+      value: "bridge-analytics-consumer-group"
 
     # Client ID for identification
     - name: clientID
-      value: "analytics-consumer-client"
+      value: "bridge-analytics-consumer-client"
 
     # Authentication type
     - name: authType

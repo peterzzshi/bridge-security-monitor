@@ -1,8 +1,13 @@
-# Pub/sub and topic names shared by both ingesters
+# Topic names shared by the ingesters, kafka-init and the Flink job
 x-topics: &topics
-  TOPIC_TRADING: bridge-transfer-events
-  TOPIC_LIQUIDITY: bridge-supply-events
+  TOPIC_TRANSFER: bridge-transfer-events
+  TOPIC_SUPPLY: bridge-supply-events
   TOPIC_DLQ: bridge-dlq-events
+  TOPIC_ALERT_TRANSFER_VOLUME: bridge-alerts-transfer-volume
+  TOPIC_ALERT_SUPPLY_TRACKING: bridge-alerts-supply-tracking
+  TOPIC_ALERT_CROSS_CHAIN_FLOW: bridge-alerts-cross-chain-flow
+  TOPIC_ALERT_EXPLOIT_DETECTION: bridge-alerts-exploit-detection
+  TOPIC_ALERT_REENTRANCY: bridge-alerts-reentrancy
 
 x-ingester-env: &ingester-env
   <<: *topics
@@ -54,9 +59,14 @@ services:
       - /bin/bash
       - -c
       - >
-        kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists --topic $$TOPIC_TRADING --partitions 6 --replication-factor 1 --config retention.ms=604800000 &&
-        kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists --topic $$TOPIC_LIQUIDITY --partitions 6 --replication-factor 1 --config retention.ms=2592000000 &&
+        kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists --topic $$TOPIC_TRANSFER --partitions 6 --replication-factor 1 --config retention.ms=604800000 &&
+        kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists --topic $$TOPIC_SUPPLY --partitions 6 --replication-factor 1 --config retention.ms=2592000000 &&
         kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists --topic $$TOPIC_DLQ --partitions 3 --replication-factor 1 --config retention.ms=2592000000 &&
+        kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists --topic $$TOPIC_ALERT_TRANSFER_VOLUME --partitions 3 --replication-factor 1 --config retention.ms=604800000 &&
+        kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists --topic $$TOPIC_ALERT_SUPPLY_TRACKING --partitions 3 --replication-factor 1 --config retention.ms=604800000 &&
+        kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists --topic $$TOPIC_ALERT_CROSS_CHAIN_FLOW --partitions 3 --replication-factor 1 --config retention.ms=604800000 &&
+        kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists --topic $$TOPIC_ALERT_EXPLOIT_DETECTION --partitions 3 --replication-factor 1 --config retention.ms=604800000 &&
+        kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists --topic $$TOPIC_ALERT_REENTRANCY --partitions 3 --replication-factor 1 --config retention.ms=604800000 &&
         echo "All topics created"
     networks:
       - dex-analytics-network
@@ -71,7 +81,7 @@ services:
     environment:
       <<: *ingester-env
       ETH_RPC_URL: ${ETH_RPC_URL}
-      CONFIG_FILE: /app/evm.toml
+      BRIDGE_CONFIG_FILE: /app/evm-bridges.toml
       DAPR_HOST: evm-ingester-dapr
       DAPR_HTTP_PORT: "3500"
     depends_on:
@@ -123,7 +133,7 @@ services:
       <<: *ingester-env
       SOLANA_RPC_URL: ${SOLANA_RPC_URL}
       SOLANA_COMMITMENT: finalized
-      CONFIG_FILE: /app/solana.toml
+      BRIDGE_CONFIG_FILE: /app/solana-bridges.toml
       DAPR_HOST: solana-ingester-dapr
       DAPR_HTTP_PORT: "3501"
       APP_PORT: "3001"
@@ -179,7 +189,7 @@ services:
       dockerfile: aggregator/Dockerfile
     image: dex-analytics-aggregator:latest
     container_name: flink-jobmanager
-    command: standalone-job --job-classname com.web3analytics.BridgeStreamProcessor
+    command: standalone-job --job-classname io.github.peterzzshi.bridge.BridgeStreamProcessor
     environment:
       # TaskManagers connect via this hostname — without it the JM announces
       # its container hostname and TM registration messages get dropped.
@@ -187,8 +197,8 @@ services:
         FLINK_PROPERTIES=
         jobmanager.rpc.address: flink-jobmanager
       - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
-      - BRIDGE_TRANSFER_TOPIC=${TOPIC_TRADING}
-      - BRIDGE_SUPPLY_TOPIC=${TOPIC_LIQUIDITY}
+      - BRIDGE_TRANSFER_TOPIC=${TOPIC_TRANSFER}
+      - BRIDGE_SUPPLY_TOPIC=${TOPIC_SUPPLY}
       - WATERMARK_DELAY_SECONDS=5
       - TRANSFER_WINDOW_SECONDS=300
       - SUPPLY_WINDOW_SECONDS=300
@@ -244,8 +254,8 @@ services:
   # Alerting Service: Kotlin/Ktor service for real-time bridge security alerts
   alerting-service:
     build:
-      context: ./alerting-service
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: alerting-service/Dockerfile
     container_name: alerting-service
     environment:
       - APP_PORT=8080

@@ -6,11 +6,11 @@
         </Console>
     </Appenders>
     <Loggers>
+      <Logger level="INFO" name="io.github.peterzzshi.bridge"/>
+      <Logger level="WARN" name="org.apache.flink"/>
+      <Logger level="WARN" name="org.apache.kafka"/>
         <Root level="INFO">
             <AppenderRef ref="Console"/>
         </Root>
-        <Logger name="com.web3analytics" level="INFO"/>
-        <Logger name="org.apache.flink" level="WARN"/>
-        <Logger name="org.apache.kafka" level="WARN"/>
     </Loggers>
 </Configuration>
