@@ -88,5 +88,8 @@ decoding; a malformed payload is counted and dropped, not routed to the DLQ (see
 Redis holds the most recent `ALERT_RETENTION_LIMIT` (default 100) alerts per
 `bridge:alerts:{bridgeAddress}:{chain}`, as a sorted set scored by `windowEnd` epoch-millis. New
 entries are added with `ZADD ... GT` so a replayed window cannot overwrite a newer one, and
-`ZREMRANGEBYRANK` trims the oldest. Cross-Chain Flow alerts are stored under the literal chain
-segment `cross-chain` because they span chains.
+`ZREMRANGEBYRANK` trims the oldest. Because an at-least-once sink can replay a window, the store
+exposes the members already at a given score; the consumer reads them, classifies the incoming alert
+as `Fresh` or `Replay` (`AlertDelivery.kt`), and only stores and broadcasts a `Fresh` one.
+Cross-Chain Flow alerts are stored under the
+literal chain segment `cross-chain` because they span chains.

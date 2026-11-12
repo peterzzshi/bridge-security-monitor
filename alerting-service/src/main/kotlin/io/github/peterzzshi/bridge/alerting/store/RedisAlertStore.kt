@@ -25,9 +25,20 @@ class RedisAlertStore(
             val json = mapper.writeValueAsString(alert)
 
             jedisPool.resource.use { jedis ->
-                val params = ZAddParams().gt()
-                jedis.zadd(key, score, json, params)
+                jedis.zadd(key, score, json, ZAddParams().gt())
                 jedis.zremrangeByRank(key, 0, -(retentionLimit + 1).toLong())
+            }
+        }
+
+    override suspend fun alertsAt(alert: Alert): List<Alert> =
+        withContext(Dispatchers.IO) {
+            val key = buildKey(alert)
+            val score = alert.windowEnd.toEpochMilli().toDouble()
+
+            jedisPool.resource.use { jedis ->
+                jedis
+                    .zrangeByScore(key, score.toString(), score.toString())
+                    .mapNotNull { runCatching { deserializeAlert(it) }.getOrNull() }
             }
         }
 

@@ -1,4 +1,4 @@
-# Build Flink job with Java 21 and Flink 2.0.1
+# Build Flink job with Java 21 and Flink 2.2.1
 FROM maven:3.9-eclipse-temurin-21 AS build
 WORKDIR /build
 
@@ -12,5 +12,5 @@ COPY aggregator/src src
 RUN mvn -q -B package -DskipTests
 
 # Job image: jar baked in, run via `standalone-job` (jobmanager) from compose.
-FROM flink:2.0-scala_2.12-java21
+FROM flink:2.2-scala_2.12-java21
 COPY --from=build /build/target/aggregator-1.0-SNAPSHOT.jar /opt/flink/usrlib/aggregator.jar

@@ -160,7 +160,10 @@ service decodes them from the CloudEvent `data_base64` field.
 Sinks use `DeliveryGuarantee.AT_LEAST_ONCE`, not exactly-once: two-phase-commit sinks require Kafka
 transaction support and idle-transaction timeouts, and the at-least-once path keeps a failed sink from
 holding back checkpoints indefinitely. The consequence is explicit — a restart can replay a window and
-emit the same alert twice, and nothing downstream deduplicates it. See `GAPS.md`.
+emit the same alert twice. `RedisAlertStore` is a plain repository — it stores, and it returns the
+members already at a given `windowEnd` score. The suppression rule lives in `AlertDelivery.kt` as a
+pure `classifyDelivery(existing, incoming)` returning `Fresh` or `Replay`, and `AlertConsumer` is the
+only place that acts on it: `Fresh` stores and broadcasts, `Replay` is logged and dropped.
 
 Checkpointing runs every `CHECKPOINT_INTERVAL_SECONDS`; restarts are `fixed-delay`, bounded by
 `RESTART_MAX_ATTEMPTS` and `RESTART_DELAY_SECONDS`, so a permanently failing sink ends as a failed job

@@ -2,6 +2,11 @@ package io.github.peterzzshi.bridge.alerting.consumer
 
 import com.fasterxml.jackson.annotation.JsonProperty
 import com.fasterxml.jackson.databind.ObjectMapper
+import io.github.peterzzshi.bridge.alerting.model.Alert
+import io.github.peterzzshi.bridge.alerting.model.AlertDelivery
+import io.github.peterzzshi.bridge.alerting.model.AlertIdentity
+import io.github.peterzzshi.bridge.alerting.model.classifyDelivery
+import io.github.peterzzshi.bridge.alerting.model.identity
 import io.github.peterzzshi.bridge.alerting.model.toKotlinAlert
 import io.github.peterzzshi.bridge.alerting.store.AlertStore
 import io.github.peterzzshi.bridge.alerting.websocket.AlertBroadcaster
@@ -10,10 +15,11 @@ import io.github.peterzzshi.bridge.schema.alert.ExploitDetectionAlert
 import io.github.peterzzshi.bridge.schema.alert.ReentrancyAlert
 import io.github.peterzzshi.bridge.schema.alert.SupplyTrackingAlert
 import io.github.peterzzshi.bridge.schema.alert.TransferVolumeAlert
+import java.util.Base64
 import org.apache.avro.io.DecoderFactory
 import org.apache.avro.specific.SpecificDatumReader
+import org.apache.avro.specific.SpecificRecordBase
 import org.slf4j.LoggerFactory
-import java.util.Base64
 
 data class CloudEventWrapper(
     val specversion: String,
@@ -32,73 +38,49 @@ class AlertConsumer(
 ) {
     private val logger = LoggerFactory.getLogger(javaClass)
 
-    suspend fun handleTransferVolume(body: String) {
+    suspend fun handleTransferVolume(body: String) =
+        handle(body, TransferVolumeAlert::class.java) { it.toKotlinAlert() }
+
+    suspend fun handleSupplyTracking(body: String) =
+        handle(body, SupplyTrackingAlert::class.java) { it.toKotlinAlert() }
+
+    suspend fun handleCrossChainFlow(body: String) =
+        handle(body, CrossChainFlowAlert::class.java) { it.toKotlinAlert() }
+
+    suspend fun handleExploitDetection(body: String) =
+        handle(body, ExploitDetectionAlert::class.java) { it.toKotlinAlert() }
+
+    suspend fun handleReentrancy(body: String) = handle(body, ReentrancyAlert::class.java) { it.toKotlinAlert() }
+
+    private suspend fun <T : SpecificRecordBase> handle(
+        body: String,
+        clazz: Class<T>,
+        toAlert: (T) -> Alert,
+    ) {
         try {
             val cloudEvent = mapper.readValue(body, CloudEventWrapper::class.java)
-            val alert = deserialize(cloudEvent, TransferVolumeAlert::class.java)
-            store.storeAlert(alert.toKotlinAlert())
-            broadcaster.broadcast(alert.toKotlinAlert())
-            logger.info(
-                "Processed TransferVolumeAlert: ${alert.bridgeAddress} ${alert.chain} severity=${alert.severity}"
-            )
+            val alert = toAlert(deserialize(cloudEvent, clazz))
+            when (val delivery = classifyDelivery(store.alertsAt(alert), alert)) {
+                is AlertDelivery.Fresh -> {
+                    store.storeAlert(delivery.alert)
+                    broadcaster.broadcast(delivery.alert)
+                    logger.info("Delivered ${describe(delivery.alert.identity)}")
+                }
+
+                is AlertDelivery.Replay -> {
+                    logger.info("Dropped replayed ${describe(delivery.alert.identity)}")
+                }
+            }
         } catch (e: Exception) {
-            logger.error("Failed to handle TransferVolumeAlert", e)
+            logger.error("Failed to handle ${clazz.simpleName}", e)
         }
     }
 
-    suspend fun handleSupplyTracking(body: String) {
-        try {
-            val cloudEvent = mapper.readValue(body, CloudEventWrapper::class.java)
-            val alert = deserialize(cloudEvent, SupplyTrackingAlert::class.java)
-            store.storeAlert(alert.toKotlinAlert())
-            broadcaster.broadcast(alert.toKotlinAlert())
-            logger.info(
-                "Processed SupplyTrackingAlert: ${alert.bridgeAddress} ${alert.chain} severity=${alert.severity}"
-            )
-        } catch (e: Exception) {
-            logger.error("Failed to handle SupplyTrackingAlert", e)
-        }
-    }
+    private fun describe(identity: AlertIdentity): String =
+        "${identity.alertType} bridge=${identity.bridgeAddress} " +
+            "window=${identity.windowStart}..${identity.windowEnd}"
 
-    suspend fun handleCrossChainFlow(body: String) {
-        try {
-            val cloudEvent = mapper.readValue(body, CloudEventWrapper::class.java)
-            val alert = deserialize(cloudEvent, CrossChainFlowAlert::class.java)
-            store.storeAlert(alert.toKotlinAlert())
-            broadcaster.broadcast(alert.toKotlinAlert())
-            logger.info("Processed CrossChainFlowAlert: ${alert.bridgeAddress} severity=${alert.severity}")
-        } catch (e: Exception) {
-            logger.error("Failed to handle CrossChainFlowAlert", e)
-        }
-    }
-
-    suspend fun handleExploitDetection(body: String) {
-        try {
-            val cloudEvent = mapper.readValue(body, CloudEventWrapper::class.java)
-            val alert = deserialize(cloudEvent, ExploitDetectionAlert::class.java)
-            store.storeAlert(alert.toKotlinAlert())
-            broadcaster.broadcast(alert.toKotlinAlert())
-            logger.info(
-                "Processed ExploitDetectionAlert: ${alert.bridgeAddress} ${alert.chain} patterns=${alert.suspiciousPatterns.size}"
-            )
-        } catch (e: Exception) {
-            logger.error("Failed to handle ExploitDetectionAlert", e)
-        }
-    }
-
-    suspend fun handleReentrancy(body: String) {
-        try {
-            val cloudEvent = mapper.readValue(body, CloudEventWrapper::class.java)
-            val alert = deserialize(cloudEvent, ReentrancyAlert::class.java)
-            store.storeAlert(alert.toKotlinAlert())
-            broadcaster.broadcast(alert.toKotlinAlert())
-            logger.info("Processed ReentrancyAlert: ${alert.transactionHash} locks=${alert.lockCount}")
-        } catch (e: Exception) {
-            logger.error("Failed to handle ReentrancyAlert", e)
-        }
-    }
-
-    private fun <T : org.apache.avro.specific.SpecificRecordBase> deserialize(
+    private fun <T : SpecificRecordBase> deserialize(
         cloudEvent: CloudEventWrapper,
         clazz: Class<T>,
     ): T {

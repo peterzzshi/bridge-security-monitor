@@ -143,6 +143,16 @@ class RedisAlertStoreTest {
                     .toMutableList()
         }
 
+        override suspend fun alertsAt(alert: Alert): List<Alert> {
+            val key = "bridge:alerts:${alert.bridgeAddress}:${getChain(alert)}"
+            val score = alert.windowEnd.toEpochMilli().toDouble()
+
+            return storage[key]
+                ?.filter { it.first == score }
+                ?.map { it.second }
+                ?: emptyList()
+        }
+
         override suspend fun getRecentAlerts(
             bridgeAddress: String,
             chain: String,
