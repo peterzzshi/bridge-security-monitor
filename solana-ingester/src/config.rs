@@ -43,14 +43,12 @@ pub struct BridgeConfig {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BridgeProtocol {
     Wormhole,
-    Allbridge,
 }
 
 impl BridgeProtocol {
     pub fn from_str(s: &str) -> Result<Self> {
         match s {
             "wormhole" => Ok(BridgeProtocol::Wormhole),
-            "allbridge" => Ok(BridgeProtocol::Allbridge),
             other => anyhow::bail!("Unknown bridge protocol: {}", other),
         }
     }
@@ -58,7 +56,6 @@ impl BridgeProtocol {
     pub fn as_str(&self) -> &'static str {
         match self {
             BridgeProtocol::Wormhole => "wormhole",
-            BridgeProtocol::Allbridge => "allbridge",
         }
     }
 }
@@ -147,11 +144,6 @@ mod tests {
 name = "Wormhole Portal"
 protocol = "wormhole"
 program_id = "wormDTUJ6AWPNvk59vGQbDvGJmqbDTdgWgAqcLBCgUb"
-
-[[bridge]]
-name = "Allbridge"
-protocol = "allbridge"
-program_id = "bb1XfoeKzmYZwmW2xxLUHJx8Q8x6dRhvyCMqWze3h4e"
 "#;
 
     fn env_without(missing: &'static str) -> impl Fn(&str) -> Result<String, env::VarError> {
@@ -184,7 +176,7 @@ program_id = "bb1XfoeKzmYZwmW2xxLUHJx8Q8x6dRhvyCMqWze3h4e"
             config.solana.chain,
             "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp"
         );
-        assert_eq!(config.bridges.len(), 2);
+        assert_eq!(config.bridges.len(), 1);
 
         assert_eq!(config.bridges[0].name, "Wormhole Portal");
         assert_eq!(config.bridges[0].protocol, BridgeProtocol::Wormhole);
@@ -192,9 +184,6 @@ program_id = "bb1XfoeKzmYZwmW2xxLUHJx8Q8x6dRhvyCMqWze3h4e"
             config.bridges[0].program_id.to_string(),
             "wormDTUJ6AWPNvk59vGQbDvGJmqbDTdgWgAqcLBCgUb"
         );
-
-        assert_eq!(config.bridges[1].name, "Allbridge");
-        assert_eq!(config.bridges[1].protocol, BridgeProtocol::Allbridge);
     }
 
     #[test]
@@ -211,7 +200,7 @@ program_id = "bb1XfoeKzmYZwmW2xxLUHJx8Q8x6dRhvyCMqWze3h4e"
         let config = Config::load(env_without(""), include_str!("../solana-bridges.toml"))
             .expect("committed solana-bridges.toml must load");
 
-        assert_eq!(config.bridges.len(), 2);
+        assert_eq!(config.bridges.len(), 1);
         assert_eq!(
             config.tokens
                 [&Pubkey::from_str("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v").unwrap()],

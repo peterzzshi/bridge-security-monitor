@@ -40,38 +40,21 @@ pub fn decode_instruction(
         data = ?data,
         "raw Solana instruction"
     );
-    match protocol {
-        BridgeProtocol::Wormhole => decode_wormhole(
-            discriminator,
-            &data[1..],
-            chain,
-            chain_name,
-            bridge_address,
-            protocol,
-            event_id,
-            block_number,
-            block_timestamp,
-            transaction_hash,
-            log_index,
-            event_timestamp,
-            fee,
-        ),
-        BridgeProtocol::Allbridge => decode_allbridge(
-            discriminator,
-            &data[1..],
-            chain,
-            chain_name,
-            bridge_address,
-            protocol,
-            event_id,
-            block_number,
-            block_timestamp,
-            transaction_hash,
-            log_index,
-            event_timestamp,
-            fee,
-        ),
-    }
+    decode_wormhole(
+        discriminator,
+        &data[1..],
+        chain,
+        chain_name,
+        bridge_address,
+        protocol,
+        event_id,
+        block_number,
+        block_timestamp,
+        transaction_hash,
+        log_index,
+        event_timestamp,
+        fee,
+    )
     .with_context(|| {
         format!(
             "failed to decode {} instruction for program {}",
@@ -176,81 +159,5 @@ fn decode_wormhole(
             message_hash: None,
         })),
         _ => bail!("unknown Wormhole discriminator: {}", discriminator),
-    }
-}
-
-fn decode_allbridge(
-    discriminator: u8,
-    data: &[u8],
-    chain: String,
-    chain_name: String,
-    bridge_address: String,
-    protocol: BridgeProtocol,
-    event_id: String,
-    block_number: i64,
-    block_timestamp: i64,
-    transaction_hash: String,
-    log_index: i32,
-    event_timestamp: i64,
-    fee: i64,
-) -> Result<Event> {
-    match discriminator {
-        10 => {
-            let amount = u64::from_le_bytes(data[0..8].try_into()?);
-            let destination_chain = u16::from_le_bytes(data[8..10].try_into()?);
-            Ok(Event::Transfer(BridgeTransferEvent {
-                event_id,
-                block_number,
-                block_timestamp,
-                transaction_hash,
-                log_index,
-                chain,
-                chain_name,
-                bridge_address,
-                protocol: protocol.as_str().to_string(),
-                direction: TransferDirection::Lock,
-                gas_used: fee,
-                gas_price: "0".to_string(),
-                event_timestamp,
-                sender: "".to_string(),
-                recipient: "".to_string(),
-                token: "".to_string(),
-                token_symbol: None,
-                amount: u64_to_decimal(amount),
-                destination_chain: Some(format!("allbridge:{}", destination_chain)),
-                source_chain: None,
-                message_hash: None,
-                sequence_number: None,
-            }))
-        }
-        11 => {
-            let amount = u64::from_le_bytes(data[0..8].try_into()?);
-            let source_chain = u16::from_le_bytes(data[8..10].try_into()?);
-            Ok(Event::Transfer(BridgeTransferEvent {
-                event_id,
-                block_number,
-                block_timestamp,
-                transaction_hash,
-                log_index,
-                chain,
-                chain_name,
-                bridge_address,
-                protocol: protocol.as_str().to_string(),
-                direction: TransferDirection::Unlock,
-                gas_used: fee,
-                gas_price: "0".to_string(),
-                event_timestamp,
-                sender: "".to_string(),
-                recipient: "".to_string(),
-                token: "".to_string(),
-                token_symbol: None,
-                amount: u64_to_decimal(amount),
-                destination_chain: None,
-                source_chain: Some(format!("allbridge:{}", source_chain)),
-                message_hash: None,
-                sequence_number: None,
-            }))
-        }
-        _ => bail!("unknown Allbridge discriminator: {}", discriminator),
     }
 }

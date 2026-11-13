@@ -3,11 +3,6 @@ name = "Wormhole Portal"
 protocol = "wormhole"
 program_id = "wormDTUJ6AWPNvk59vGQbDvGJmqbDTdgWgAqcLBCgUb"
 
-[[bridge]]
-name = "Allbridge"
-protocol = "allbridge"
-program_id = "bb1XfoeKzmYZwmW2xxLUHJx8Q8x6dRhvyCMqWze3h4e"
-
 # Tokens that cross both Solana and EVM via these bridges, enabling supply mismatch detection.
 # Mints are the canonical Solana representations; EVM counterparts are in evm-bridges.toml.
 [tokens."EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"]

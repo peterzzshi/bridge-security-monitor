@@ -193,7 +193,7 @@ public class BridgeStreamProcessor {
         .build();
 
     activityStream
-        .keyBy(activity -> activity.bridgeAddress() + ":" + activity.chain())
+        .keyBy(BridgeActivity::protocol)
         .window(EventTimeSessionWindows.withGap(
             Duration.ofSeconds(config.exploitSessionGapSeconds())))
         .aggregate(new ExploitDetectionAggregateFunction(), new WindowStamp<>())

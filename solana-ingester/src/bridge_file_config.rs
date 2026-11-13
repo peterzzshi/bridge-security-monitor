@@ -51,8 +51,8 @@ impl BridgeFileConfig {
             }
 
             match bridge.protocol.as_str() {
-                "wormhole" | "allbridge" => {}
-                other => bail!("Invalid protocol: {other}. Must be one of: wormhole, allbridge"),
+                "wormhole" => {}
+                other => bail!("Invalid protocol: {other}. Must be one of: wormhole"),
             }
         }
 
@@ -73,11 +73,6 @@ mod tests {
 name = "Wormhole Portal"
 protocol = "wormhole"
 program_id = "wormDTUJ6AWPNvk59vGQbDvGJmqbDTdgWgAqcLBCgUb"
-
-[[bridge]]
-name = "Allbridge"
-protocol = "allbridge"
-program_id = "bb1XfoeKzmYZwmW2xxLUHJx8Q8x6dRhvyCMqWze3h4e"
 "#;
 
     fn err_of(contents: &str) -> String {
@@ -88,10 +83,9 @@ program_id = "bb1XfoeKzmYZwmW2xxLUHJx8Q8x6dRhvyCMqWze3h4e"
     fn valid_config_parses() {
         let config = BridgeFileConfig::parse(VALID).expect("valid config");
 
-        assert_eq!(config.bridge.len(), 2);
+        assert_eq!(config.bridge.len(), 1);
         assert_eq!(config.bridge[0].name, "Wormhole Portal");
         assert_eq!(config.bridge[0].protocol, "wormhole");
-        assert_eq!(config.bridge[1].name, "Allbridge");
     }
 
     #[test]
@@ -106,9 +100,13 @@ program_id = "bb1XfoeKzmYZwmW2xxLUHJx8Q8x6dRhvyCMqWze3h4e"
 
     #[test]
     fn duplicate_program_id_is_rejected() {
-        let contents = VALID.replace(
-            "bb1XfoeKzmYZwmW2xxLUHJx8Q8x6dRhvyCMqWze3h4e",
-            "wormDTUJ6AWPNvk59vGQbDvGJmqbDTdgWgAqcLBCgUb",
+        let contents = format!(
+            r#"{VALID}
+[[bridge]]
+name = "Duplicate"
+protocol = "wormhole"
+program_id = "wormDTUJ6AWPNvk59vGQbDvGJmqbDTdgWgAqcLBCgUb"
+"#
         );
 
         assert!(err_of(&contents).contains("Duplicate bridge program_id"));
