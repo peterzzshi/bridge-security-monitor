@@ -162,10 +162,7 @@ async fn main() -> Result<()> {
 
     let config = Arc::new(Config::load_from_env().context("Failed to load configuration")?);
 
-    info!(
-        "Loaded configuration for chain: {}",
-        config.solana.chain_name
-    );
+    info!("Loaded configuration for chain: {}", config.solana.chain);
     for bridge in &config.bridges {
         info!("  - {} ({})", bridge.name, bridge.protocol.as_str());
     }
@@ -265,7 +262,7 @@ fn build_bridge_runner(
 ) -> Result<BridgeRunner> {
     let handler = BridgeHandler::new(
         bridge.chain.clone(),
-        bridge.chain_name.clone(),
+        "Solana".to_string(),
         bridge.program_id.to_string(),
         bridge.protocol,
         rpc_client.clone(),

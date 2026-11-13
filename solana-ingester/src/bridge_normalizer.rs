@@ -40,12 +40,13 @@ impl BridgeNormalizer {
         &self,
         slot: u64,
         tx_signature: String,
+        instruction_index: usize,
         instruction_data: &[u8],
         block_timestamp: i64,
         event_timestamp: i64,
         fee: i64,
     ) -> Result<Event> {
-        let event_id = format!("{}:0", tx_signature);
+        let event_id = format!("{}:{}", tx_signature, instruction_index);
 
         crate::bridge_decoder::decode_instruction(
             &self.program_id,

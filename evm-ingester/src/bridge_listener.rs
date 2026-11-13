@@ -66,13 +66,12 @@ impl LruCache {
 impl<P: Middleware + 'static> BridgeListener<P> {
     pub fn new(
         chain_id: String,
-        chain_name: String,
         bridge_address: String,
         protocol: BridgeProtocol,
         rpc: Arc<RetryableProvider<P>>,
     ) -> Self {
         Self {
-            normalizer: BridgeNormalizer::new(chain_id, chain_name, bridge_address, protocol),
+            normalizer: BridgeNormalizer::new(chain_id, bridge_address, protocol),
             rpc,
             block_timestamps: Arc::new(RwLock::new(LruCache::new(BLOCK_TIMESTAMP_CACHE_SIZE))),
         }

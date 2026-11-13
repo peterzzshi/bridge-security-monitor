@@ -63,11 +63,12 @@ impl BridgeHandler {
 
         let mut events = Vec::new();
 
-        for instruction in tx_data.message.instructions() {
+        for (i, instruction) in tx_data.message.instructions().iter().enumerate() {
             let instruction_data = instruction.data.as_slice();
             match self.normalizer.normalize(
                 slot,
                 signature.to_string(),
+                i,
                 instruction_data,
                 block_timestamp,
                 event_timestamp,

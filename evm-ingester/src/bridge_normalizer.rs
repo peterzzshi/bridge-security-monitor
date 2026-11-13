@@ -5,7 +5,6 @@ use ethers::types::Log;
 
 pub struct BridgeNormalizer {
     chain_id: String,
-    chain_name: String,
     bridge_address: String,
     protocol: BridgeProtocol,
 }
@@ -17,15 +16,9 @@ impl BridgeNormalizer {
 }
 
 impl BridgeNormalizer {
-    pub fn new(
-        chain_id: String,
-        chain_name: String,
-        bridge_address: String,
-        protocol: BridgeProtocol,
-    ) -> Self {
+    pub fn new(chain_id: String, bridge_address: String, protocol: BridgeProtocol) -> Self {
         Self {
             chain_id,
-            chain_name,
             bridge_address,
             protocol,
         }
@@ -51,7 +44,7 @@ impl BridgeNormalizer {
             &log,
             self.protocol,
             self.chain_id.clone(),
-            self.chain_name.clone(),
+            "Ethereum".to_string(),
             self.bridge_address.clone(),
             event_id,
             block_number.as_u64() as i64,

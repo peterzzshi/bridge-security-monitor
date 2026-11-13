@@ -1,6 +1,7 @@
 use anyhow::{Context, Result};
 use dex_ingester_common::{RetryConfig, Secret, SharedConfig};
 use ethers::types::Address;
+use std::collections::BTreeMap;
 use std::env;
 use std::str::FromStr;
 
@@ -11,6 +12,14 @@ use crate::bridge_file_config::BridgeFileConfig;
 pub struct Config {
     pub shared: SharedConfig,
     pub bridges: Vec<Bridge>,
+    pub tokens: BTreeMap<Address, Token>,
+}
+
+/// Display metadata for a token, keyed by its on-chain address.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Token {
+    pub symbol: String,
+    pub decimals: u8,
 }
 
 #[derive(Debug, Clone)]
@@ -19,7 +28,6 @@ pub struct Bridge {
     pub protocol: BridgeProtocol,
     pub address: Address,
     pub chain_id: String,
-    pub chain_name: String,
     pub rpc: Secret,
     pub confirmations: u64,
     pub retry: RetryConfig,
@@ -53,16 +61,34 @@ impl Config {
                     protocol: BridgeProtocol::from_str(&b.protocol)?,
                     address: Address::from_str(&b.address)
                         .with_context(|| format!("Invalid bridge address: {}", b.address))?,
-                    chain_id: format!("eip155:{}", b.chain_id),
-                    chain_name: b.chain_name,
+                    chain_id: "eip155:1".to_string(),
                     rpc: rpc.clone(),
-                    confirmations: 12, // EVM default
+                    confirmations: 12,
                     retry: RetryConfig::default(),
                 })
             })
             .collect::<Result<Vec<_>>>()?;
 
-        Ok(Config { shared, bridges })
+        let tokens = bridge_file
+            .tokens
+            .into_iter()
+            .map(|(address, token)| {
+                Ok((
+                    Address::from_str(&address)
+                        .with_context(|| format!("Invalid token address: {address}"))?,
+                    Token {
+                        symbol: token.symbol,
+                        decimals: token.decimals,
+                    },
+                ))
+            })
+            .collect::<Result<BTreeMap<_, _>>>()?;
+
+        Ok(Config {
+            shared,
+            bridges,
+            tokens,
+        })
     }
 }
 
@@ -98,15 +124,11 @@ mod tests {
 name = "Wormhole"
 protocol = "wormhole"
 address = "0x3ee18B2214AFF97000D974cf647E7C347E8fa585"
-chain_id = 1
-chain_name = "ethereum"
 
 [[bridge]]
 name = "LayerZero"
 protocol = "layerzero"
 address = "0x1a44076050125825900e736c501f859c50fE728c"
-chain_id = 1
-chain_name = "ethereum"
 "#;
 
     #[test]
@@ -151,5 +173,34 @@ chain_name = "ethereum"
             err_msg.contains("Invalid protocol") || err_msg.contains("Unknown bridge protocol"),
             "Expected protocol error, got: {err_msg}"
         );
+    }
+
+    /// The committed TOML is what the binary loads at startup. Parsing it here fails the build on
+    /// drift instead of leaving an ingester that exits before its first RPC call.
+    #[test]
+    fn committed_bridge_config_loads() {
+        let config = Config::load(lookup(&env_vars()), include_str!("../evm-bridges.toml"))
+            .expect("committed evm-bridges.toml must load");
+
+        assert_eq!(config.bridges.len(), 3);
+        assert_eq!(
+            config.tokens
+                [&Address::from_str("0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48").unwrap()],
+            Token {
+                symbol: "USDC".to_string(),
+                decimals: 6
+            }
+        );
+    }
+
+    #[test]
+    fn token_address_is_rejected_when_malformed() {
+        let bad_config = format!(
+            "{BRIDGE_CONFIG}\n[tokens.\"not-an-address\"]\nsymbol = \"X\"\ndecimals = 18\n"
+        );
+
+        let err = Config::load(lookup(&env_vars()), &bad_config).unwrap_err();
+
+        assert!(format!("{err:#}").contains("tokens"));
     }
 }

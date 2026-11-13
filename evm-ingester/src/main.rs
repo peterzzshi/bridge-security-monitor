@@ -115,7 +115,6 @@ async fn spawn_bridge(
 
     let listener = BridgeListener::new(
         bridge.chain_id.clone(),
-        bridge.chain_name.clone(),
         format!("{:?}", bridge.address),
         bridge.protocol,
         Arc::clone(&rpc),

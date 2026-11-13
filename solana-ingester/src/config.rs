@@ -1,6 +1,7 @@
 use anyhow::{Context, Result};
 use dex_ingester_common::{Secret, SharedConfig};
 use solana_sdk::pubkey::Pubkey;
+use std::collections::BTreeMap;
 use std::env;
 use std::str::FromStr;
 
@@ -11,6 +12,14 @@ pub struct Config {
     pub shared: SharedConfig,
     pub solana: SolanaConfig,
     pub bridges: Vec<BridgeConfig>,
+    pub tokens: BTreeMap<Pubkey, Token>,
+}
+
+/// Display metadata for a token mint.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Token {
+    pub symbol: String,
+    pub decimals: u8,
 }
 
 #[derive(Debug, Clone)]
@@ -18,9 +27,7 @@ pub struct SolanaConfig {
     pub app_port: u16,
     pub rpc: Secret,
     pub commitment: String,
-    #[expect(dead_code)]
     pub chain: String,
-    pub chain_name: String,
     pub finality_buffer_size: usize,
     pub finality_poll_interval_secs: u64,
 }
@@ -31,7 +38,6 @@ pub struct BridgeConfig {
     pub protocol: BridgeProtocol,
     pub program_id: Pubkey,
     pub chain: String,
-    pub chain_name: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -83,7 +89,6 @@ impl Config {
             rpc: Secret::new(get_env("SOLANA_RPC_URL").context("SOLANA_RPC_URL not set")?),
             commitment: get_env("SOLANA_COMMITMENT").context("SOLANA_COMMITMENT not set")?,
             chain: "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp".to_string(),
-            chain_name: "Solana".to_string(),
             finality_buffer_size: get_env("FINALITY_BUFFER_SIZE")
                 .context("FINALITY_BUFFER_SIZE not set")?
                 .parse()
@@ -105,15 +110,30 @@ impl Config {
                     program_id: Pubkey::from_str(&b.program_id)
                         .with_context(|| format!("Invalid program_id for bridge {}", b.name))?,
                     chain: "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp".to_string(),
-                    chain_name: b.chain_name,
                 })
             })
             .collect::<Result<Vec<_>>>()?;
+
+        let tokens = bridge_file
+            .tokens
+            .into_iter()
+            .map(|(mint, token)| {
+                Ok((
+                    Pubkey::from_str(&mint)
+                        .with_context(|| format!("Invalid token mint: {mint}"))?,
+                    Token {
+                        symbol: token.symbol,
+                        decimals: token.decimals,
+                    },
+                ))
+            })
+            .collect::<Result<BTreeMap<_, _>>>()?;
 
         Ok(Config {
             shared,
             solana,
             bridges,
+            tokens,
         })
     }
 }
@@ -127,13 +147,11 @@ mod tests {
 name = "Wormhole Portal"
 protocol = "wormhole"
 program_id = "wormDTUJ6AWPNvk59vGQbDvGJmqbDTdgWgAqcLBCgUb"
-chain_name = "solana"
 
 [[bridge]]
 name = "Allbridge"
 protocol = "allbridge"
 program_id = "bb1XfoeKzmYZwmW2xxLUHJx8Q8x6dRhvyCMqWze3h4e"
-chain_name = "solana"
 "#;
 
     fn env_without(missing: &'static str) -> impl Fn(&str) -> Result<String, env::VarError> {
@@ -162,7 +180,10 @@ chain_name = "solana"
     fn bridge_config_loads_with_parsed_protocol_and_pubkey() {
         let config = Config::load(env_without(""), VALID_BRIDGES).expect("should load");
 
-        assert_eq!(config.solana.chain_name, "Solana");
+        assert_eq!(
+            config.solana.chain,
+            "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp"
+        );
         assert_eq!(config.bridges.len(), 2);
 
         assert_eq!(config.bridges[0].name, "Wormhole Portal");
@@ -183,6 +204,34 @@ chain_name = "solana"
         assert!(format!("{err:#}").contains("SOLANA_RPC_URL"));
     }
 
+    /// The committed TOML is what the binary loads at startup. Parsing it here fails the build on
+    /// drift instead of leaving an ingester that exits before its first RPC call.
+    #[test]
+    fn committed_bridge_config_loads() {
+        let config = Config::load(env_without(""), include_str!("../solana-bridges.toml"))
+            .expect("committed solana-bridges.toml must load");
+
+        assert_eq!(config.bridges.len(), 2);
+        assert_eq!(
+            config.tokens
+                [&Pubkey::from_str("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v").unwrap()],
+            Token {
+                symbol: "USDC".to_string(),
+                decimals: 6
+            }
+        );
+    }
+
+    #[test]
+    fn token_mint_is_rejected_when_malformed() {
+        let invalid =
+            format!("{VALID_BRIDGES}\n[tokens.\"not-a-pubkey\"]\nsymbol = \"X\"\ndecimals = 9\n");
+
+        let err = Config::load(env_without(""), &invalid).unwrap_err();
+
+        assert!(format!("{err:#}").contains("Invalid token mint"));
+    }
+
     #[test]
     fn invalid_protocol_fails_parse() {
         let invalid = r#"
@@ -190,7 +239,6 @@ chain_name = "solana"
 name = "Invalid"
 protocol = "unknown"
 program_id = "wormDTUJ6AWPNvk59vGQbDvGJmqbDTdgWgAqcLBCgUb"
-chain_name = "solana"
 "#;
 
         let err = Config::load(env_without(""), invalid).unwrap_err();
@@ -206,7 +254,6 @@ chain_name = "solana"
 name = "Invalid"
 protocol = "wormhole"
 program_id = "not-a-valid-pubkey"
-chain_name = "solana"
 "#;
 
         let err = Config::load(env_without(""), invalid).unwrap_err();

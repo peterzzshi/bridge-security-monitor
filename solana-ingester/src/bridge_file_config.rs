@@ -1,13 +1,17 @@
 use anyhow::{bail, Context, Result};
 use serde::Deserialize;
 use solana_sdk::pubkey::Pubkey;
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 use std::str::FromStr;
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct BridgeFileConfig {
     pub bridge: Vec<BridgeFile>,
+    /// Token mint to display metadata. Public, on-chain and long-lived, so it is declared here
+    /// rather than looked up per event.
+    #[serde(default)]
+    pub tokens: BTreeMap<String, TokenFile>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -16,7 +20,13 @@ pub struct BridgeFile {
     pub name: String,
     pub protocol: String,
     pub program_id: String,
-    pub chain_name: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TokenFile {
+    pub symbol: String,
+    pub decimals: u8,
 }
 
 impl BridgeFileConfig {
@@ -46,6 +56,10 @@ impl BridgeFileConfig {
             }
         }
 
+        for token in self.tokens.keys() {
+            Pubkey::from_str(token).with_context(|| format!("Invalid token mint: {token}"))?;
+        }
+
         Ok(())
     }
 }
@@ -59,13 +73,11 @@ mod tests {
 name = "Wormhole Portal"
 protocol = "wormhole"
 program_id = "wormDTUJ6AWPNvk59vGQbDvGJmqbDTdgWgAqcLBCgUb"
-chain_name = "solana"
 
 [[bridge]]
 name = "Allbridge"
 protocol = "allbridge"
 program_id = "bb1XfoeKzmYZwmW2xxLUHJx8Q8x6dRhvyCMqWze3h4e"
-chain_name = "solana"
 "#;
 
     fn err_of(contents: &str) -> String {

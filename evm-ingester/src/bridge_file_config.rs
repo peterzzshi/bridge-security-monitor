@@ -1,11 +1,15 @@
 use anyhow::{bail, Context, Result};
 use serde::Deserialize;
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct BridgeFileConfig {
     pub bridge: Vec<BridgeFile>,
+    /// Token address to display metadata. Public, on-chain and long-lived, so it is declared here
+    /// rather than looked up per event.
+    #[serde(default)]
+    pub tokens: BTreeMap<String, TokenFile>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -14,8 +18,13 @@ pub struct BridgeFile {
     pub name: String,
     pub protocol: String,
     pub address: String,
-    pub chain_id: u64,
-    pub chain_name: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TokenFile {
+    pub symbol: String,
+    pub decimals: u8,
 }
 
 impl BridgeFileConfig {
@@ -41,6 +50,10 @@ impl BridgeFileConfig {
                 "wormhole" | "layerzero" | "hop" | "allbridge" => {}
                 other => bail!("Invalid protocol: {other}. Must be one of: wormhole, layerzero, hop, allbridge"),
             }
+        }
+
+        for token in self.tokens.keys() {
+            check_address("tokens", token)?;
         }
 
         Ok(())
@@ -73,15 +86,11 @@ mod tests {
 name = "Wormhole"
 protocol = "wormhole"
 address = "0x3ee18B2214AFF97000D974cf647E7C347E8fa585"
-chain_id = 1
-chain_name = "ethereum"
 
 [[bridge]]
 name = "LayerZero"
 protocol = "layerzero"
 address = "0x1a44076050125825900e736c501f859c50fE728c"
-chain_id = 1
-chain_name = "ethereum"
 "#;
 
     fn err_of(contents: &str) -> String {

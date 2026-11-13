@@ -33,6 +33,13 @@ pub fn decode_instruction(
     }
 
     let discriminator = data[0];
+    tracing::info!(
+        protocol = protocol.as_str(),
+        discriminator,
+        tx = %transaction_hash,
+        data = ?data,
+        "raw Solana instruction"
+    );
     match protocol {
         BridgeProtocol::Wormhole => decode_wormhole(
             discriminator,
@@ -90,9 +97,12 @@ fn decode_wormhole(
     fee: i64,
 ) -> Result<Event> {
     match discriminator {
-        1 => {
-            let amount = u64::from_le_bytes(data[0..8].try_into()?);
-            let destination_chain = u16::from_le_bytes(data[8..10].try_into()?);
+        // TransferNative (5) and TransferWrapped (4): outgoing lock.
+        // Borsh layout for TransferNative: nonce:u32 | amount:u64 | fee:u64 | target_address:[u8;32] | target_chain:u16
+        // TransferWrapped has the same prefix layout.
+        4 | 5 => {
+            let amount = u64::from_le_bytes(data[4..12].try_into()?);
+            let destination_chain = u16::from_le_bytes(data[52..54].try_into()?);
             Ok(Event::Transfer(BridgeTransferEvent {
                 event_id,
                 block_number,
@@ -118,59 +128,53 @@ fn decode_wormhole(
                 sequence_number: None,
             }))
         }
-        2 => {
-            let amount = u64::from_le_bytes(data[0..8].try_into()?);
-            let source_chain = u16::from_le_bytes(data[8..10].try_into()?);
-            Ok(Event::Transfer(BridgeTransferEvent {
-                event_id,
-                block_number,
-                block_timestamp,
-                transaction_hash,
-                log_index,
-                chain,
-                chain_name,
-                bridge_address,
-                protocol: protocol.as_str().to_string(),
-                direction: TransferDirection::Unlock,
-                gas_used: fee,
-                gas_price: "0".to_string(),
-                event_timestamp,
-                sender: "".to_string(),
-                recipient: "".to_string(),
-                token: "".to_string(),
-                token_symbol: None,
-                amount: u64_to_decimal(amount),
-                destination_chain: None,
-                source_chain: Some(format!("wormhole:{}", source_chain)),
-                message_hash: None,
-                sequence_number: None,
-            }))
-        }
-        3 => {
-            let amount = u64::from_le_bytes(data[0..8].try_into()?);
-            let source_chain = u16::from_le_bytes(data[8..10].try_into()?);
-            Ok(Event::Supply(BridgeSupplyEvent {
-                event_id,
-                block_number,
-                block_timestamp,
-                transaction_hash,
-                log_index,
-                chain,
-                chain_name,
-                bridge_address,
-                protocol: protocol.as_str().to_string(),
-                operation: SupplyOperation::Mint,
-                gas_used: fee,
-                gas_price: "0".to_string(),
-                event_timestamp,
-                recipient: "".to_string(),
-                wrapped_token: "".to_string(),
-                wrapped_token_symbol: None,
-                amount: u64_to_decimal(amount),
-                source_chain: Some(format!("wormhole:{}", source_chain)),
-                message_hash: None,
-            }))
-        }
+        // CompleteNative (2): incoming unlock. Amount is in the VAA account, not instruction bytes.
+        2 => Ok(Event::Transfer(BridgeTransferEvent {
+            event_id,
+            block_number,
+            block_timestamp,
+            transaction_hash,
+            log_index,
+            chain,
+            chain_name,
+            bridge_address,
+            protocol: protocol.as_str().to_string(),
+            direction: TransferDirection::Unlock,
+            gas_used: fee,
+            gas_price: "0".to_string(),
+            event_timestamp,
+            sender: "".to_string(),
+            recipient: "".to_string(),
+            token: "".to_string(),
+            token_symbol: None,
+            amount: u64_to_decimal(0),
+            destination_chain: None,
+            source_chain: None,
+            message_hash: None,
+            sequence_number: None,
+        })),
+        // CompleteWrapped (3): incoming mint. Amount is in the VAA account, not instruction bytes.
+        3 => Ok(Event::Supply(BridgeSupplyEvent {
+            event_id,
+            block_number,
+            block_timestamp,
+            transaction_hash,
+            log_index,
+            chain,
+            chain_name,
+            bridge_address,
+            protocol: protocol.as_str().to_string(),
+            operation: SupplyOperation::Mint,
+            gas_used: fee,
+            gas_price: "0".to_string(),
+            event_timestamp,
+            recipient: "".to_string(),
+            wrapped_token: "".to_string(),
+            wrapped_token_symbol: None,
+            amount: u64_to_decimal(0),
+            source_chain: None,
+            message_hash: None,
+        })),
         _ => bail!("unknown Wormhole discriminator: {}", discriminator),
     }
 }
