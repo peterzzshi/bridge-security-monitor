@@ -68,7 +68,6 @@ which they reliably do.
 - [ARCHITECTURE.md](ARCHITECTURE.md) — data flow, design decisions, alert semantics
 - [DATA_MODEL.md](DATA_MODEL.md) — event and alert schemas
 - [GAPS.md](GAPS.md) — known limitations and outstanding defects
-- [E2E-TEST.md](E2E-TEST.md) — end-to-end verification walkthrough
 - [AGENT.md](AGENT.md) — conventions and commands
 
 Each component directory has its own `README.md`.

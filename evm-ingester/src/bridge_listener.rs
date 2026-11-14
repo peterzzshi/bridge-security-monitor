@@ -1,21 +1,29 @@
 use crate::bridge_decoder::BridgeProtocol;
 use crate::bridge_normalizer::BridgeNormalizer;
+use crate::config::Token;
 use crate::rpc_retry::RetryableProvider;
 use anyhow::{Context, Result};
 use dex_ingester_common::Event;
 use ethers::prelude::*;
 use ethers::types::Log;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::RwLock;
 
 const BLOCK_TIMESTAMP_CACHE_SIZE: usize = 128;
 
+/// ERC20 Transfer event signature: keccak256("Transfer(address,address,uint256)")
+const ERC20_TRANSFER_TOPIC: H256 = H256([
+    0xdd, 0xf2, 0x52, 0xad, 0x1b, 0xe2, 0xc8, 0x9b, 0x69, 0xc2, 0xb0, 0x68, 0xfc, 0x37, 0x8d, 0xaa,
+    0x95, 0x2b, 0xa7, 0xf1, 0x63, 0xc4, 0xa1, 0x16, 0x28, 0xf5, 0x5a, 0x4d, 0xf5, 0x23, 0xb3, 0xef,
+]);
+
 pub struct BridgeListener<P: Middleware> {
     normalizer: BridgeNormalizer,
     rpc: Arc<RetryableProvider<P>>,
     block_timestamps: Arc<RwLock<LruCache>>,
+    tokens: Arc<BTreeMap<Address, Token>>,
 }
 
 /// Simple LRU cache with deterministic eviction policy
@@ -69,11 +77,13 @@ impl<P: Middleware + 'static> BridgeListener<P> {
         bridge_address: String,
         protocol: BridgeProtocol,
         rpc: Arc<RetryableProvider<P>>,
+        tokens: Arc<BTreeMap<Address, Token>>,
     ) -> Self {
         Self {
             normalizer: BridgeNormalizer::new(chain_id, bridge_address, protocol),
             rpc,
             block_timestamps: Arc::new(RwLock::new(LruCache::new(BLOCK_TIMESTAMP_CACHE_SIZE))),
+            tokens,
         }
     }
 
@@ -85,17 +95,32 @@ impl<P: Middleware + 'static> BridgeListener<P> {
             .transaction_hash
             .context("log missing transaction hash")?;
 
-        let (gas_used, gas_price) = self.fetch_gas_data(transaction_hash).await?;
+        let (gas_used, gas_price, token_address, transaction_input) =
+            self.fetch_receipt_data(transaction_hash).await?;
+
+        // Look up token metadata from config
+        let (token_symbol, token_decimals) = token_address
+            .as_ref()
+            .and_then(|addr| self.tokens.get(addr))
+            .map(|token| (Some(token.symbol.clone()), Some(token.decimals)))
+            .unwrap_or((None, None));
 
         let event_timestamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map(|elapsed| elapsed.as_secs() as i64)
             .unwrap_or_default();
 
-        match self
-            .normalizer
-            .normalize(log, block_timestamp, event_timestamp, gas_used, gas_price)
-        {
+        match self.normalizer.normalize(
+            log,
+            block_timestamp,
+            event_timestamp,
+            gas_used,
+            gas_price,
+            token_address.as_ref(),
+            token_symbol.as_deref(),
+            token_decimals,
+            transaction_input.as_ref(),
+        ) {
             Ok(event) => Ok(Some(event)),
             Err(e) => {
                 tracing::warn!(
@@ -136,7 +161,14 @@ impl<P: Middleware + 'static> BridgeListener<P> {
         Ok(timestamp)
     }
 
-    async fn fetch_gas_data(&self, transaction_hash: ethers::types::H256) -> Result<(i64, String)> {
+    /// Fetches the transaction receipt from RPC and extracts gas data plus the token
+    /// address from the first ERC20 Transfer log. The receipt is already fetched for gas
+    /// data, so token address extraction is free — no separate Etherscan call needed.
+    /// Also fetches the transaction input calldata for VAA parsing in unlock operations.
+    async fn fetch_receipt_data(
+        &self,
+        transaction_hash: ethers::types::H256,
+    ) -> Result<(i64, String, Option<H160>, Option<ethers::types::Bytes>)> {
         let receipt = self
             .rpc
             .get_transaction_receipt(transaction_hash)
@@ -150,7 +182,22 @@ impl<P: Middleware + 'static> BridgeListener<P> {
             .map(|p| p.to_string())
             .unwrap_or_else(|| "0".to_string());
 
-        Ok((gas_used, gas_price))
+        let token_address = receipt
+            .logs
+            .iter()
+            .find(|log| log.topics.first() == Some(&ERC20_TRANSFER_TOPIC))
+            .map(|log| log.address);
+
+        // Fetch transaction input for VAA parsing
+        let transaction_input = self
+            .rpc
+            .inner()
+            .get_transaction(transaction_hash)
+            .await
+            .context("failed to fetch transaction")?
+            .map(|tx| tx.input);
+
+        Ok((gas_used, gas_price, token_address, transaction_input))
     }
 }
 

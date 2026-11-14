@@ -1,7 +1,7 @@
 use crate::bridge_decoder::BridgeProtocol;
 use anyhow::{Context, Result};
 use dex_ingester_common::Event;
-use ethers::types::Log;
+use ethers::types::{Address, Log};
 
 pub struct BridgeNormalizer {
     chain_id: String,
@@ -31,6 +31,10 @@ impl BridgeNormalizer {
         event_timestamp: i64,
         gas_used: i64,
         gas_price: String,
+        token_address: Option<&Address>,
+        token_symbol: Option<&str>,
+        token_decimals: Option<u8>,
+        transaction_input: Option<&ethers::types::Bytes>,
     ) -> Result<Event> {
         let block_number = log.block_number.context("log missing block number")?;
         let transaction_hash = log
@@ -54,6 +58,12 @@ impl BridgeNormalizer {
             event_timestamp,
             gas_used,
             gas_price,
+            token_address
+                .map(|addr| format!("{:?}", addr))
+                .unwrap_or_default(),
+            token_symbol.map(String::from),
+            token_decimals,
+            transaction_input,
         )
     }
 }

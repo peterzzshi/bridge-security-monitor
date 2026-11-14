@@ -182,7 +182,7 @@ address = "0x1a44076050125825900e736c501f859c50fE728c"
         let config = Config::load(lookup(&env_vars()), include_str!("../evm-bridges.toml"))
             .expect("committed evm-bridges.toml must load");
 
-        assert_eq!(config.bridges.len(), 3);
+        assert_eq!(config.bridges.len(), 2);
         assert_eq!(
             config.tokens
                 [&Address::from_str("0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48").unwrap()],

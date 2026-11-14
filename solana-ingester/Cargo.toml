@@ -25,6 +25,9 @@ toml = "=0.8.23"
 apache-avro = "0.22.0"
 num-bigint = "0.5.1"
 
+# Hex encoding
+hex = "0.4"
+
 # Logging
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
@@ -34,6 +37,9 @@ anyhow = "1"
 
 # Random number generation (for retry jitter)
 rand = "0.10.3"
+
+# HTTP client for enrichment
+reqwest = { version = "0.11", features = ["json"] }
 
 # HTTP server for health checks
 warp = { version = "0.4.3", features = ["server"] }

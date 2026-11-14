@@ -5,6 +5,7 @@ mod bridge_handler;
 mod bridge_normalizer;
 mod config;
 mod rpc_retry;
+mod vaa_parser;
 
 use anyhow::{Context, Result};
 use dex_ingester_common::{
@@ -221,7 +222,7 @@ async fn main() -> Result<()> {
 
     let mut bridge_tasks = Vec::new();
     for bridge in config.bridges.iter() {
-        let runner = build_bridge_runner(bridge, &rpc_client, &event_processor)?;
+        let runner = build_bridge_runner(bridge, &rpc_client, &event_processor, &config)?;
         info!("Started monitoring task for bridge: {}", bridge.name);
         bridge_tasks.push(tokio::spawn(runner.run(shutdown_rx.clone())));
     }
@@ -259,6 +260,7 @@ fn build_bridge_runner(
     bridge: &BridgeConfig,
     rpc_client: &Arc<RetryableRpcClient>,
     event_processor: &Arc<EventProcessor>,
+    config: &Arc<Config>,
 ) -> Result<BridgeRunner> {
     let handler = BridgeHandler::new(
         bridge.chain.clone(),
@@ -266,6 +268,7 @@ fn build_bridge_runner(
         bridge.program_id.to_string(),
         bridge.protocol,
         rpc_client.clone(),
+        Arc::new(config.tokens.clone()),
     );
 
     Ok(BridgeRunner {

@@ -1,10 +1,12 @@
 use crate::bridge_decoder::BridgeProtocol;
 use crate::bridge_normalizer::BridgeNormalizer;
+use crate::config::Token;
 use crate::rpc_retry::RetryableRpcClient;
 use anyhow::Result;
 use dex_ingester_common::Event;
 use solana_sdk::pubkey::Pubkey;
 use solana_sdk::signature::Signature;
+use std::collections::BTreeMap;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -13,6 +15,7 @@ use tracing::warn;
 pub struct BridgeHandler {
     normalizer: BridgeNormalizer,
     rpc_client: Arc<RetryableRpcClient>,
+    tokens: Arc<BTreeMap<Pubkey, Token>>,
 }
 
 impl BridgeHandler {
@@ -22,11 +25,19 @@ impl BridgeHandler {
         program_id: String,
         protocol: BridgeProtocol,
         rpc_client: Arc<RetryableRpcClient>,
+        tokens: Arc<BTreeMap<Pubkey, Token>>,
     ) -> Self {
         let program_id = Pubkey::from_str(&program_id).expect("valid program_id");
         Self {
-            normalizer: BridgeNormalizer::new(chain_id, chain_name, program_id, protocol),
+            normalizer: BridgeNormalizer::new(
+                chain_id,
+                chain_name,
+                program_id,
+                protocol,
+                rpc_client.clone(),
+            ),
             rpc_client,
+            tokens,
         }
     }
 
@@ -52,7 +63,7 @@ impl BridgeHandler {
 
         if meta.err.is_some() {
             return Ok(vec![]);
-        }
+        };
 
         let fee = meta.fee as i64;
 
@@ -61,19 +72,80 @@ impl BridgeHandler {
             return Ok(vec![]);
         };
 
+        // Extract account keys from the already-decoded transaction message
+        let account_keys = tx_data.message.static_account_keys();
+
+        // Extract token balances from meta's post_token_balances
+        let post_token_balances: Vec<(Pubkey, u8)> = meta
+            .post_token_balances
+            .unwrap_or(Vec::new())
+            .into_iter()
+            .filter_map(|tb| {
+                let mint = Pubkey::from_str(&tb.mint).ok()?;
+                let decimals = tb.ui_token_amount.decimals;
+                Some((mint, decimals))
+            })
+            .collect();
+
         let mut events = Vec::new();
 
         for (i, instruction) in tx_data.message.instructions().iter().enumerate() {
+            let instruction_program_id = account_keys[instruction.program_id_index as usize];
+            if instruction_program_id != *self.normalizer.program_id() {
+                continue;
+            }
+
             let instruction_data = instruction.data.as_slice();
-            match self.normalizer.normalize(
-                slot,
-                signature.to_string(),
-                i,
-                instruction_data,
-                block_timestamp,
-                event_timestamp,
-                fee,
-            ) {
+
+            // Extract token mint based on discriminator
+            let (token_mint, token_symbol, token_decimals) = if !instruction_data.is_empty() {
+                let discriminator = instruction_data[0];
+                let mint = match discriminator {
+                    2 => account_keys.get(10).copied(), // CompleteNative: accounts[10]
+                    3 => post_token_balances.first().map(|(m, _)| *m), // CompleteWrapped: postTokenBalances[].mint
+                    4 => account_keys.get(4).copied(), // TransferWrapped: accounts[4]
+                    5 => account_keys.get(3).copied(), // TransferNative: accounts[3]
+                    _ => None,
+                };
+
+                let symbol = mint
+                    .and_then(|m| self.tokens.get(&m))
+                    .map(|t| t.symbol.as_str());
+                let decimals = mint.and_then(|m| self.tokens.get(&m)).map(|t| t.decimals);
+                (mint, symbol, decimals)
+            } else {
+                (None, None, None)
+            };
+
+            // For CompleteNative (2) and CompleteWrapped (3), VAA account is at accounts[1]
+            let vaa_account = if !instruction_data.is_empty() {
+                let discriminator = instruction_data[0];
+                if discriminator == 2 || discriminator == 3 {
+                    account_keys.get(1).copied()
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+
+            match self
+                .normalizer
+                .normalize(
+                    slot,
+                    signature.to_string(),
+                    i,
+                    instruction_data,
+                    block_timestamp,
+                    event_timestamp,
+                    fee,
+                    token_mint.as_ref(),
+                    token_symbol,
+                    token_decimals,
+                    vaa_account.as_ref(),
+                )
+                .await
+            {
                 Ok(event) => {
                     events.push(event);
                 }

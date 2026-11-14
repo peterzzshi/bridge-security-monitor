@@ -11,7 +11,6 @@ use std::str::FromStr;
 pub enum BridgeProtocol {
     Wormhole,
     LayerZero,
-    Hop,
 }
 
 impl BridgeProtocol {
@@ -19,7 +18,6 @@ impl BridgeProtocol {
         match self {
             Self::Wormhole => "wormhole",
             Self::LayerZero => "layerzero",
-            Self::Hop => "hop",
         }
     }
 }
@@ -31,7 +29,6 @@ impl FromStr for BridgeProtocol {
         match s {
             "wormhole" => Ok(Self::Wormhole),
             "layerzero" => Ok(Self::LayerZero),
-            "hop" => Ok(Self::Hop),
             other => bail!("Unknown bridge protocol: {}", other),
         }
     }
@@ -42,6 +39,30 @@ fn u256_to_decimal(value: U256) -> Decimal {
     value.to_big_endian(&mut bytes);
     let big_int = BigInt::from_bytes_be(num_bigint::Sign::Plus, &bytes);
     Decimal::from(big_int.to_signed_bytes_be())
+}
+
+/// Normalize amount to 18 decimals: rawAmount * 10^(18 - decimals)
+fn normalize_to_18_decimals(amount: Decimal, decimals: u8) -> Decimal {
+    if decimals == 18 {
+        return amount;
+    }
+    let scale_factor = 18i32 - decimals as i32;
+    if scale_factor == 0 {
+        return amount;
+    }
+    let ten = BigInt::from(10);
+    let multiplier = if scale_factor > 0 {
+        ten.pow(scale_factor as u32)
+    } else {
+        // Scale down if decimals > 18 (shouldn't happen for standard tokens)
+        return amount;
+    };
+
+    // Convert Decimal to BigInt, multiply, convert back
+    let amount_bytes: Vec<u8> = amount.try_into().unwrap_or_else(|_| vec![0]);
+    let amount_bigint = BigInt::from_signed_bytes_be(&amount_bytes);
+    let normalized = amount_bigint * multiplier;
+    Decimal::from(normalized.to_signed_bytes_be())
 }
 
 // The token bridge contract (0x3ee18B...) does not emit a lock event directly.
@@ -148,42 +169,6 @@ fn decode_packet_verified(log: &Log) -> Result<PacketVerifiedDecoded> {
     })
 }
 
-// Real L1_Bridge ABI: TransferSentToL2(uint256 indexed chainId, address indexed recipient,
-//   uint256 amount, uint256 tokenIndex, uint256 amountOutMin, uint256 deadline,
-//   address indexed relayer, uint256 relayerFee)
-#[derive(Debug, Clone, PartialEq, EthEvent)]
-#[ethevent(name = "TransferSentToL2")]
-pub struct HopTransferSentToL2 {
-    #[ethevent(indexed)]
-    pub chain_id: U256,
-    #[ethevent(indexed)]
-    pub recipient: Address,
-    pub amount: U256,
-    pub token_index: U256,
-    pub amount_out_min: U256,
-    pub deadline: U256,
-    #[ethevent(indexed)]
-    pub relayer: Address,
-    pub relayer_fee: U256,
-}
-
-// Real L2_Bridge ABI: TransferFromL1Completed(address indexed recipient, uint256 amount,
-//   uint8 tokenIndex, uint256 amountOutMin, uint256 deadline, address indexed relayer,
-//   uint256 relayerFee)
-#[derive(Debug, Clone, PartialEq, EthEvent)]
-#[ethevent(name = "TransferFromL1Completed")]
-pub struct HopTransferFromL1Completed {
-    #[ethevent(indexed)]
-    pub recipient: Address,
-    pub amount: U256,
-    pub token_index: u8,
-    pub amount_out_min: U256,
-    pub deadline: U256,
-    #[ethevent(indexed)]
-    pub relayer: Address,
-    pub relayer_fee: U256,
-}
-
 pub fn decode(
     log: &Log,
     protocol: BridgeProtocol,
@@ -198,6 +183,10 @@ pub fn decode(
     event_timestamp: i64,
     gas_used: i64,
     gas_price: String,
+    token: String,
+    token_symbol: Option<String>,
+    token_decimals: Option<u8>,
+    transaction_input: Option<&ethers::types::Bytes>,
 ) -> Result<Event> {
     tracing::info!(
         protocol = protocol.as_str(),
@@ -212,6 +201,11 @@ pub fn decode(
             if log.topics[0] == WormholeTransferSent::signature() {
                 let event = <WormholeTransferSent as EthLogDecode>::decode_log(&log.clone().into())
                     .context("failed to decode WormholeTransferSent")?;
+                let raw_amount = u256_to_decimal(event.amount);
+                let normalized_amount = token_decimals
+                    .map(|d| normalize_to_18_decimals(raw_amount.clone(), d))
+                    .unwrap_or(raw_amount);
+
                 Ok(Event::Transfer(BridgeTransferEvent {
                     event_id,
                     block_number,
@@ -228,9 +222,9 @@ pub fn decode(
                     event_timestamp,
                     sender: format!("{:?}", event.sender),
                     recipient: format!("0x{}", hex::encode(event.recipient)),
-                    token: "".to_string(),
-                    token_symbol: None,
-                    amount: u256_to_decimal(event.amount),
+                    token: token.clone(),
+                    token_symbol: token_symbol.clone(),
+                    amount: normalized_amount,
                     destination_chain: Some(format!("eip155:{}", event.target_chain)),
                     source_chain: None,
                     message_hash: None,
@@ -240,6 +234,47 @@ pub fn decode(
                 let event =
                     <WormholeTransferRedeemed as EthLogDecode>::decode_log(&log.clone().into())
                         .context("failed to decode WormholeTransferRedeemed")?;
+
+                // Parse VAA from transaction input calldata to extract the real transfer amount
+                let amount = if let Some(input) = transaction_input {
+                    match crate::vaa_parser::extract_vaa_from_calldata(input) {
+                        Ok(vaa_bytes) => {
+                            match crate::vaa_parser::parse_token_bridge_transfer(&vaa_bytes) {
+                                Ok(transfer) => {
+                                    let normalized_amount = token_decimals
+                                        .map(|d| {
+                                            normalize_to_18_decimals(transfer.amount.clone(), d)
+                                        })
+                                        .unwrap_or(transfer.amount);
+                                    normalized_amount
+                                }
+                                Err(e) => {
+                                    tracing::warn!(
+                                        tx = %transaction_hash,
+                                        "Failed to parse VAA payload: {:#}",
+                                        e
+                                    );
+                                    Decimal::from(vec![0])
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            tracing::warn!(
+                                tx = %transaction_hash,
+                                "Failed to extract VAA from calldata: {:#}",
+                                e
+                            );
+                            Decimal::from(vec![0])
+                        }
+                    }
+                } else {
+                    tracing::warn!(
+                        tx = %transaction_hash,
+                        "No transaction input available for VAA parsing"
+                    );
+                    Decimal::from(vec![0])
+                };
+
                 Ok(Event::Transfer(BridgeTransferEvent {
                     event_id,
                     block_number,
@@ -256,9 +291,9 @@ pub fn decode(
                     event_timestamp,
                     sender: format!("0x{}", hex::encode(event.emitter_address)),
                     recipient: "".to_string(),
-                    token: "".to_string(),
-                    token_symbol: None,
-                    amount: Decimal::from(vec![0]),
+                    token: token.clone(),
+                    token_symbol: token_symbol.clone(),
+                    amount,
                     destination_chain: None,
                     source_chain: Some(format!("eip155:{}", event.emitter_chain_id)),
                     // VAA identity: emitter_chain:emitter_address:sequence uniquely identifies a
@@ -350,66 +385,6 @@ pub fn decode(
                 }))
             } else {
                 bail!("unknown LayerZero event signature: {:?}", log.topics[0])
-            }
-        }
-        BridgeProtocol::Hop => {
-            if log.topics[0] == HopTransferSentToL2::signature() {
-                let event = <HopTransferSentToL2 as EthLogDecode>::decode_log(&log.clone().into())
-                    .context("failed to decode HopTransferSentToL2")?;
-                Ok(Event::Transfer(BridgeTransferEvent {
-                    event_id,
-                    block_number,
-                    block_timestamp,
-                    transaction_hash: format!("{:?}", transaction_hash),
-                    log_index,
-                    chain,
-                    chain_name,
-                    bridge_address,
-                    protocol: protocol.as_str().to_string(),
-                    direction: TransferDirection::Lock,
-                    gas_used,
-                    gas_price: gas_price.clone(),
-                    event_timestamp,
-                    sender: "".to_string(),
-                    recipient: format!("{:?}", event.recipient),
-                    token: "".to_string(),
-                    token_symbol: None,
-                    amount: u256_to_decimal(event.amount),
-                    destination_chain: Some(format!("eip155:{}", event.chain_id)),
-                    source_chain: None,
-                    message_hash: None,
-                    sequence_number: None,
-                }))
-            } else if log.topics[0] == HopTransferFromL1Completed::signature() {
-                let event =
-                    <HopTransferFromL1Completed as EthLogDecode>::decode_log(&log.clone().into())
-                        .context("failed to decode HopTransferFromL1Completed")?;
-                Ok(Event::Transfer(BridgeTransferEvent {
-                    event_id,
-                    block_number,
-                    block_timestamp,
-                    transaction_hash: format!("{:?}", transaction_hash),
-                    log_index,
-                    chain,
-                    chain_name,
-                    bridge_address,
-                    protocol: protocol.as_str().to_string(),
-                    direction: TransferDirection::Unlock,
-                    gas_used,
-                    gas_price: gas_price.clone(),
-                    event_timestamp,
-                    sender: "".to_string(),
-                    recipient: format!("{:?}", event.recipient),
-                    token: "".to_string(),
-                    token_symbol: None,
-                    amount: u256_to_decimal(event.amount),
-                    destination_chain: None,
-                    source_chain: None,
-                    message_hash: None,
-                    sequence_number: None,
-                }))
-            } else {
-                bail!("unknown Hop event signature: {:?}", log.topics[0])
             }
         }
     }

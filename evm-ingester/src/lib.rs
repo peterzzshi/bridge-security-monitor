@@ -4,6 +4,7 @@ pub mod bridge_listener;
 pub mod bridge_normalizer;
 pub mod config;
 pub mod rpc_retry;
+pub mod vaa_parser;
 
 pub use config::Config;
 pub use rpc_retry::RetryableProvider;

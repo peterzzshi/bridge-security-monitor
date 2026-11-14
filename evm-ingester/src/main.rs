@@ -118,6 +118,7 @@ async fn spawn_bridge(
         format!("{:?}", bridge.address),
         bridge.protocol,
         Arc::clone(&rpc),
+        Arc::new(config.tokens.clone()),
     );
 
     let processor = Arc::new(EventProcessor::new(

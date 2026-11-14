@@ -164,6 +164,15 @@ impl RpcClient {
 
         Ok(slot)
     }
+
+    /// Get account data (synchronous RPC call)
+    pub fn get_account_data_sync(&self, pubkey: &Pubkey) -> Result<Vec<u8>> {
+        let account = self
+            .http_client
+            .get_account(pubkey)
+            .context("Failed to fetch account")?;
+        Ok(account.data)
+    }
 }
 
 fn parse_commitment(commitment: &str) -> Result<CommitmentConfig> {

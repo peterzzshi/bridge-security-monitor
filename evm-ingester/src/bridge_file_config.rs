@@ -47,9 +47,9 @@ impl BridgeFileConfig {
             }
 
             match bridge.protocol.as_str() {
-                "wormhole" | "layerzero" | "hop" => {}
+                "wormhole" | "layerzero" => {}
                 other => {
-                    bail!("Invalid protocol: {other}. Must be one of: wormhole, layerzero, hop")
+                    bail!("Invalid protocol: {other}. Must be one of: wormhole, layerzero")
                 }
             }
         }

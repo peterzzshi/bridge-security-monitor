@@ -8,11 +8,6 @@ name = "LayerZero"
 protocol = "layerzero"
 address = "0x1a44076050125825900e736c501f859c50fE728c"
 
-[[bridge]]
-name = "Hop"
-protocol = "hop"
-address = "0xb8901acB165ed027E32754E0FFe830802919727f"
-
 # Tokens that cross both EVM and Solana via these bridges, enabling supply mismatch detection.
 # Addresses are the canonical EVM representations; Solana counterparts are in solana-bridges.toml.
 [tokens."0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"]
