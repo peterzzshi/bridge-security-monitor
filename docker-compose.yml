@@ -205,6 +205,7 @@ services:
       - FLOW_WINDOW_SECONDS=300
       - EXPLOIT_SESSION_GAP_SECONDS=60
       - REENTRANCY_WINDOW_SECONDS=5
+      - UNUSUAL_SIZE_WINDOW_SECONDS=300
       # Bounded restarts: a permanently failing sink ends as a failed job, not a loop. Without
       # checkpointing, a restart replays the topic from earliest.
       - RESTART_MAX_ATTEMPTS=3

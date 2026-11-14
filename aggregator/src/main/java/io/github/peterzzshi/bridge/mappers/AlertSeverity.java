@@ -5,6 +5,7 @@ import io.github.peterzzshi.bridge.model.ExploitDetectionAccumulator;
 import io.github.peterzzshi.bridge.model.ReentrancyAccumulator;
 import io.github.peterzzshi.bridge.model.SupplyTrackingAccumulator;
 import io.github.peterzzshi.bridge.model.TransferVolumeAccumulator;
+import io.github.peterzzshi.bridge.model.UnusualSizeAccumulator;
 import io.github.peterzzshi.bridge.schema.alert.Severity;
 import java.math.BigInteger;
 
@@ -97,5 +98,12 @@ public final class AlertSeverity {
       return Severity.MEDIUM;
     }
     return Severity.LOW;
+  }
+
+  public static Severity compute(final UnusualSizeAccumulator acc) {
+    if (acc.count < 100) {
+      return Severity.LOW;
+    }
+    return Severity.MEDIUM;
   }
 }

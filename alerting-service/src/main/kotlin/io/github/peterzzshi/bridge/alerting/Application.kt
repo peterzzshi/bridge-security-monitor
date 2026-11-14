@@ -24,12 +24,12 @@ import io.ktor.server.websocket.WebSockets
 import io.ktor.server.websocket.pingPeriod
 import io.ktor.server.websocket.timeout
 import io.ktor.server.websocket.webSocket
+import java.util.UUID
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.channels.consumeEach
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import org.slf4j.LoggerFactory
-import java.util.UUID
 
 fun main() {
     val port = System.getenv("APP_PORT")?.toIntOrNull() ?: 8080
@@ -107,8 +107,13 @@ fun Application.module() {
                     mapOf(
                         "pubsubname" to pubsubName,
                         "topic" to "bridge-alerts-reentrancy",
-                        "route" to "/events/reentrancy"
-                    )
+                        "route" to "/events/reentrancy",
+                    ),
+                    mapOf(
+                        "pubsubname" to pubsubName,
+                        "topic" to "bridge-alerts-unusual-size",
+                        "route" to "/events/unusual-size",
+                    ),
                 )
             call.respond(subscriptions)
         }
@@ -140,6 +145,12 @@ fun Application.module() {
         post("/events/reentrancy") {
             val body = call.receiveText()
             consumer.handleReentrancy(body)
+            call.respond(HttpStatusCode.OK)
+        }
+
+        post("/events/unusual-size") {
+            val body = call.receiveText()
+            consumer.handleUnusualSize(body)
             call.respond(HttpStatusCode.OK)
         }
 

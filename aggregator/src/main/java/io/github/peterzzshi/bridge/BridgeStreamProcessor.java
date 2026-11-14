@@ -7,11 +7,13 @@ import io.github.peterzzshi.bridge.functions.ExploitDetectionAggregateFunction;
 import io.github.peterzzshi.bridge.functions.ReentrancyDetectionAggregateFunction;
 import io.github.peterzzshi.bridge.functions.SupplyTrackingAggregateFunction;
 import io.github.peterzzshi.bridge.functions.TransferVolumeAggregateFunction;
+import io.github.peterzzshi.bridge.functions.UnusualSizeAggregateFunction;
 import io.github.peterzzshi.bridge.mappers.CrossChainFlowAlertMapper;
 import io.github.peterzzshi.bridge.mappers.ExploitDetectionAlertMapper;
 import io.github.peterzzshi.bridge.mappers.ReentrancyAlertMapper;
 import io.github.peterzzshi.bridge.mappers.SupplyTrackingAlertMapper;
 import io.github.peterzzshi.bridge.mappers.TransferVolumeAlertMapper;
+import io.github.peterzzshi.bridge.mappers.UnusualSizeAlertMapper;
 import io.github.peterzzshi.bridge.model.BridgeActivity;
 import io.github.peterzzshi.bridge.model.EventKind;
 import io.github.peterzzshi.bridge.model.WindowStamped;
@@ -20,6 +22,7 @@ import io.github.peterzzshi.bridge.schema.alert.ExploitDetectionAlert;
 import io.github.peterzzshi.bridge.schema.alert.ReentrancyAlert;
 import io.github.peterzzshi.bridge.schema.alert.SupplyTrackingAlert;
 import io.github.peterzzshi.bridge.schema.alert.TransferVolumeAlert;
+import io.github.peterzzshi.bridge.schema.alert.UnusualSizeAlert;
 import io.github.peterzzshi.bridge.schema.event.BridgeSupplyEvent;
 import io.github.peterzzshi.bridge.schema.event.BridgeTransferEvent;
 import io.github.peterzzshi.bridge.serde.BridgeEventDeserializer;
@@ -86,8 +89,9 @@ public class BridgeStreamProcessor {
     buildCrossChainFlowPipeline(activityStream, config);
     buildExploitDetectionPipeline(activityStream, config);
     buildReentrancyDetectionPipeline(transferStream, config);
+    buildUnusualSizePipeline(transferStream, config);
 
-    LOG.info("Starting Bridge Stream Processor with 5 pipelines");
+    LOG.info("Starting Bridge Stream Processor with 6 pipelines");
     env.execute("Bridge Security Monitor");
   }
 
@@ -229,6 +233,34 @@ public class BridgeStreamProcessor {
         .map(new ReentrancyAlertMapper(Duration.ofSeconds(config.reentrancyWindowSeconds())))
         .sinkTo(sink)
         .name("Reentrancy Detection Kafka Sink");
+  }
+
+  /**
+   * Detects transfers exceeding 3 standard deviations from historical mean using Welford's
+   * online algorithm. Keyed by bridge+chain+token to track statistics per token on each bridge.
+   * Suppresses alerts until count >= 100 to avoid false positives during cold start.
+   */
+  private static void buildUnusualSizePipeline(
+      final DataStream<BridgeTransferEvent> transferStream,
+      final BridgeStreamProcessorConfig config) {
+    final KafkaSink<UnusualSizeAlert> sink = KafkaSink.<UnusualSizeAlert>builder()
+        .setBootstrapServers(config.kafkaBootstrapServers())
+        .setRecordSerializer(KafkaRecordSerializationSchema.builder()
+            .setTopic(AlertTopics.UNUSUAL_SIZE)
+            .setValueSerializationSchema(
+                AvroSerializationSchema.forSpecific(UnusualSizeAlert.class))
+            .build())
+        .setDeliveryGuarantee(DeliveryGuarantee.AT_LEAST_ONCE)
+        .build();
+
+    transferStream
+        .keyBy(event -> event.getBridgeAddress() + ":" + event.getChain() + ":" + event.getTokenSymbol())
+        .window(TumblingEventTimeWindows.of(Duration.ofSeconds(config.unusualSizeWindowSeconds())))
+        .aggregate(new UnusualSizeAggregateFunction(), new WindowStamp<>())
+        .filter(acc -> acc.count >= 100)
+        .map(new UnusualSizeAlertMapper(Duration.ofSeconds(config.unusualSizeWindowSeconds())))
+        .sinkTo(sink)
+        .name("Unusual Size Kafka Sink");
   }
 
   /**

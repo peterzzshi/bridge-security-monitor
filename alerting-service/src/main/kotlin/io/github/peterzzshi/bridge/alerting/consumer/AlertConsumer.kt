@@ -15,11 +15,12 @@ import io.github.peterzzshi.bridge.schema.alert.ExploitDetectionAlert
 import io.github.peterzzshi.bridge.schema.alert.ReentrancyAlert
 import io.github.peterzzshi.bridge.schema.alert.SupplyTrackingAlert
 import io.github.peterzzshi.bridge.schema.alert.TransferVolumeAlert
-import java.util.Base64
+import io.github.peterzzshi.bridge.schema.alert.UnusualSizeAlert
 import org.apache.avro.io.DecoderFactory
 import org.apache.avro.specific.SpecificDatumReader
 import org.apache.avro.specific.SpecificRecordBase
 import org.slf4j.LoggerFactory
+import java.util.Base64
 
 data class CloudEventWrapper(
     val specversion: String,
@@ -51,6 +52,8 @@ class AlertConsumer(
         handle(body, ExploitDetectionAlert::class.java) { it.toKotlinAlert() }
 
     suspend fun handleReentrancy(body: String) = handle(body, ReentrancyAlert::class.java) { it.toKotlinAlert() }
+
+    suspend fun handleUnusualSize(body: String) = handle(body, UnusualSizeAlert::class.java) { it.toKotlinAlert() }
 
     private suspend fun <T : SpecificRecordBase> handle(
         body: String,

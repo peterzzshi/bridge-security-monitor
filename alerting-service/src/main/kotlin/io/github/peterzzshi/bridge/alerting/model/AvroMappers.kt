@@ -6,6 +6,7 @@ import io.github.peterzzshi.bridge.schema.alert.ExploitDetectionAlert as AvroExp
 import io.github.peterzzshi.bridge.schema.alert.ReentrancyAlert as AvroReentrancyAlert
 import io.github.peterzzshi.bridge.schema.alert.SupplyTrackingAlert as AvroSupplyTrackingAlert
 import io.github.peterzzshi.bridge.schema.alert.TransferVolumeAlert as AvroTransferVolumeAlert
+import io.github.peterzzshi.bridge.schema.alert.UnusualSizeAlert as AvroUnusualSizeAlert
 
 fun AvroTransferVolumeAlert.toKotlinAlert(): TransferVolumeAlert =
     TransferVolumeAlert(
@@ -85,4 +86,18 @@ fun AvroReentrancyAlert.toKotlinAlert(): ReentrancyAlert =
         transactionHash = this.transactionHash.toString(),
         lockCount = this.lockCount,
         unlockCount = this.unlockCount,
+    )
+
+fun AvroUnusualSizeAlert.toKotlinAlert(): UnusualSizeAlert =
+    UnusualSizeAlert(
+        bridgeAddress = this.bridgeAddress.toString(),
+        chain = this.chain.toString(),
+        tokenSymbol = this.tokenSymbol,
+        windowStart = this.windowStart,
+        windowEnd = this.windowEnd,
+        severity = Severity.valueOf(this.severity.name),
+        alertType = this.alertType.toString(),
+        count = this.count,
+        mean = this.mean,
+        stddev = this.stddev,
     )

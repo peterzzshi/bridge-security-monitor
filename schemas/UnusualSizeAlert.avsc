@@ -1,0 +1,18 @@
+{
+  "type": "record",
+  "name": "UnusualSizeAlert",
+  "namespace": "io.github.peterzzshi.bridge.schema.alert",
+  "doc": "Alert for transfers exceeding 3 standard deviations from historical mean. Uses Welford's online algorithm to track mean and variance per bridge+token pair.",
+  "fields": [
+    {"name": "bridgeAddress", "type": "string"},
+    {"name": "chain", "type": "string", "doc": "CAIP-2 format: eip155:1 or solana:5eykt..."},
+    {"name": "tokenSymbol", "type": ["null", "string"], "default": null},
+    {"name": "windowStart", "type": {"type": "long", "logicalType": "timestamp-millis"}},
+    {"name": "windowEnd", "type": {"type": "long", "logicalType": "timestamp-millis"}},
+    {"name": "severity", "type": "Severity"},
+    {"name": "alertType", "type": "string", "default": "UNUSUAL_SIZE"},
+    {"name": "count", "type": "long", "doc": "Number of transfers observed in this window"},
+    {"name": "mean", "type": "double", "doc": "Mean transfer amount (normalized to 18 decimals)"},
+    {"name": "stddev", "type": "double", "doc": "Standard deviation of transfer amounts"}
+  ]
+}

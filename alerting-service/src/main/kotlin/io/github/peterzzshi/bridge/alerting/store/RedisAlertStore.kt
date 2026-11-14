@@ -8,6 +8,8 @@ import io.github.peterzzshi.bridge.alerting.model.ExploitDetectionAlert
 import io.github.peterzzshi.bridge.alerting.model.ReentrancyAlert
 import io.github.peterzzshi.bridge.alerting.model.SupplyTrackingAlert
 import io.github.peterzzshi.bridge.alerting.model.TransferVolumeAlert
+import io.github.peterzzshi.bridge.alerting.model.UnusualSizeAlert
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import redis.clients.jedis.JedisPool
@@ -16,10 +18,11 @@ import redis.clients.jedis.params.ZAddParams
 class RedisAlertStore(
     private val jedisPool: JedisPool,
     private val mapper: ObjectMapper,
-    private val retentionLimit: Int = 100
+    private val retentionLimit: Int = 100,
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO
 ) : AlertStore {
     override suspend fun storeAlert(alert: Alert): Unit =
-        withContext(Dispatchers.IO) {
+        withContext(ioDispatcher) {
             val key = buildKey(alert)
             val score = alert.windowEnd.toEpochMilli().toDouble()
             val json = mapper.writeValueAsString(alert)
@@ -31,7 +34,7 @@ class RedisAlertStore(
         }
 
     override suspend fun alertsAt(alert: Alert): List<Alert> =
-        withContext(Dispatchers.IO) {
+        withContext(ioDispatcher) {
             val key = buildKey(alert)
             val score = alert.windowEnd.toEpochMilli().toDouble()
 
@@ -47,7 +50,7 @@ class RedisAlertStore(
         chain: String,
         limit: Int
     ): List<Alert> =
-        withContext(Dispatchers.IO) {
+        withContext(ioDispatcher) {
             val key = "bridge:alerts:$bridgeAddress:$chain"
             jedisPool.resource.use { jedis ->
                 val jsons = jedis.zrevrange(key, 0, (limit - 1).toLong())
@@ -68,6 +71,7 @@ class RedisAlertStore(
                 is SupplyTrackingAlert -> alert.chain
                 is ExploitDetectionAlert -> alert.chain
                 is ReentrancyAlert -> alert.chain
+                is UnusualSizeAlert -> alert.chain
                 is CrossChainFlowAlert -> "cross-chain"
             }
         return "bridge:alerts:${alert.bridgeAddress}:$chain"
@@ -81,6 +85,7 @@ class RedisAlertStore(
             "CROSS_CHAIN_FLOW" -> mapper.readValue<CrossChainFlowAlert>(json)
             "EXPLOIT_DETECTION" -> mapper.readValue<ExploitDetectionAlert>(json)
             "REENTRANCY" -> mapper.readValue<ReentrancyAlert>(json)
+            "UNUSUAL_SIZE" -> mapper.readValue<UnusualSizeAlert>(json)
             else -> throw IllegalArgumentException("Unknown alert type: $alertType")
         }
     }

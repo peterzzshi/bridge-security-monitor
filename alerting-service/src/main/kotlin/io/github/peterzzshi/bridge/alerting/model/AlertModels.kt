@@ -17,18 +17,13 @@ enum class BridgeProtocol {
 
     @Suppress("ktlint:standard:enum-entry-name-case")
     layerzero,
-
-    @Suppress("ktlint:standard:enum-entry-name-case")
-    hop,
-
-    @Suppress("ktlint:standard:enum-entry-name-case")
-    allbridge,
 }
 
 enum class SuspiciousPattern {
     RAPID_TRANSFERS,
     LARGE_TRANSFER,
-    SUPPLY_MISMATCH
+    SUPPLY_MISMATCH,
+    UNUSUAL_SIZE
 }
 
 sealed interface Alert {
@@ -112,6 +107,19 @@ data class ReentrancyAlert(
     val transactionHash: String,
     val lockCount: Int,
     val unlockCount: Int
+) : Alert
+
+data class UnusualSizeAlert(
+    override val bridgeAddress: String,
+    val chain: String,
+    val tokenSymbol: String?,
+    override val windowStart: Instant,
+    override val windowEnd: Instant,
+    override val severity: Severity,
+    override val alertType: String = "UNUSUAL_SIZE",
+    val count: Long,
+    val mean: Double,
+    val stddev: Double
 ) : Alert
 
 fun Alert.toJson(mapper: ObjectMapper): String = mapper.writeValueAsString(this)
