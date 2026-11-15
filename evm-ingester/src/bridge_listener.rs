@@ -3,7 +3,7 @@ use crate::bridge_normalizer::BridgeNormalizer;
 use crate::config::Token;
 use crate::rpc_retry::RetryableProvider;
 use anyhow::{Context, Result};
-use dex_ingester_common::Event;
+use dex_ingester_common::DecodeOutcome;
 use ethers::prelude::*;
 use ethers::types::Log;
 use std::collections::{BTreeMap, HashMap};
@@ -87,7 +87,7 @@ impl<P: Middleware + 'static> BridgeListener<P> {
         }
     }
 
-    pub async fn process_log(&self, log: Log) -> Result<Option<Event>> {
+    pub async fn process_log(&self, log: Log) -> Result<DecodeOutcome> {
         let block_number = log.block_number.context("log missing block number")?;
         let block_timestamp = self.fetch_block_timestamp(block_number).await?;
 
@@ -99,39 +99,35 @@ impl<P: Middleware + 'static> BridgeListener<P> {
             self.fetch_receipt_data(transaction_hash).await?;
 
         // Look up token metadata from config
-        let (token_symbol, token_decimals) = token_address
+        let token_symbol = token_address
             .as_ref()
             .and_then(|addr| self.tokens.get(addr))
-            .map(|token| (Some(token.symbol.clone()), Some(token.decimals)))
-            .unwrap_or((None, None));
+            .map(|token| token.symbol.clone());
 
         let event_timestamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map(|elapsed| elapsed.as_secs() as i64)
             .unwrap_or_default();
 
-        match self.normalizer.normalize(
-            log,
-            block_timestamp,
-            event_timestamp,
-            gas_used,
-            gas_price,
-            token_address.as_ref(),
-            token_symbol.as_deref(),
-            token_decimals,
-            transaction_input.as_ref(),
-        ) {
-            Ok(event) => Ok(Some(event)),
-            Err(e) => {
+        self.normalizer
+            .normalize(
+                log,
+                block_timestamp,
+                event_timestamp,
+                gas_used,
+                gas_price,
+                token_address.as_ref(),
+                token_symbol.as_deref(),
+                transaction_input.as_ref(),
+            )
+            .inspect_err(|e| {
                 tracing::warn!(
                     bridge = %self.normalizer.bridge_address(),
                     tx = ?transaction_hash,
                     "Failed to normalize bridge log: {:#}",
                     e
                 );
-                Err(e)
-            }
-        }
+            })
     }
 
     async fn fetch_block_timestamp(&self, block_number: U64) -> Result<i64> {

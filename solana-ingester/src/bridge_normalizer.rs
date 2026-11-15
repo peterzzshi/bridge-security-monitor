@@ -1,7 +1,7 @@
 use crate::bridge_decoder::BridgeProtocol;
 use crate::rpc_retry::RetryableRpcClient;
 use anyhow::Result;
-use dex_ingester_common::Event;
+use dex_ingester_common::DecodeOutcome;
 use solana_sdk::pubkey::Pubkey;
 use std::sync::Arc;
 
@@ -16,10 +16,6 @@ pub struct BridgeNormalizer {
 impl BridgeNormalizer {
     pub fn program_id(&self) -> &Pubkey {
         &self.program_id
-    }
-
-    pub fn protocol(&self) -> BridgeProtocol {
-        self.protocol
     }
 }
 
@@ -54,7 +50,7 @@ impl BridgeNormalizer {
         token_decimals: Option<u8>,
         vaa_account: Option<&Pubkey>,
         published_message: Option<&crate::posted_message::PostedMessage>,
-    ) -> Result<Event> {
+    ) -> Result<DecodeOutcome> {
         let event_id = format!("{}:{}", tx_signature, instruction_index);
 
         crate::bridge_decoder::decode_instruction(

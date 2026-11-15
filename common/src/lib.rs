@@ -1,3 +1,4 @@
+mod amount;
 mod avro;
 mod config;
 mod envelope;
@@ -8,6 +9,7 @@ mod retry;
 
 use serde::{Serialize, Serializer};
 
+pub use amount::{native_amount, wormhole_payload_amount, WORMHOLE_AMOUNT_DECIMALS};
 pub use apache_avro::Decimal;
 pub use avro::AvroEncoder;
 pub use config::{DaprConfig, RetryConfig, Secret, SharedConfig, TopicsConfig};
@@ -173,6 +175,35 @@ pub struct EventMeta {
 pub enum Event {
     Transfer(BridgeTransferEvent),
     Supply(BridgeSupplyEvent),
+}
+
+/// What a decoder made of one log or instruction.
+///
+/// A decoder has three different answers, and the first two cannot share a representation: a
+/// message from another application on the same contract is expected and frequent, while a
+/// message from this bridge that cannot be read is lost data. Returning `Option` for both made
+/// a missing-decimals config bug indistinguishable from an unrelated log, so the caller could
+/// not decide which to log, count, or alert on.
+#[derive(Debug, Clone)]
+pub enum DecodeOutcome {
+    /// A reportable event.
+    Decoded(Event),
+    /// Not a message this ingester reports: another Wormhole application's message, a
+    /// non-transfer payload, an unrelated discriminator. Expected, not a defect.
+    NotReported,
+    /// This ingester should have produced an event but could not read the data. The event is
+    /// lost. Carries the reason for the log line.
+    DataLost(String),
+}
+
+impl DecodeOutcome {
+    /// The event, when there is one.
+    pub fn event(self) -> Option<Event> {
+        match self {
+            Self::Decoded(event) => Some(event),
+            Self::NotReported | Self::DataLost(_) => None,
+        }
+    }
 }
 
 /// Emits the event's fields inline alongside an `eventType` discriminant, preserving the JSON

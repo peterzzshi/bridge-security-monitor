@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 use dex_ingester_common::{
-    Event, EventProcessor, FinalityBuffer, FinalityMode, Publisher, PublisherConfig,
+    DecodeOutcome, Event, EventProcessor, FinalityBuffer, FinalityMode, Publisher, PublisherConfig,
 };
 use ethers::prelude::*;
 use ethers::providers::Ws;
@@ -196,15 +196,21 @@ where
                     continue;
                 }
 
+                let tx_hash = log.transaction_hash;
                 match listener.process_log(log).await {
-                    Ok(Some(event)) => {
+                    Ok(DecodeOutcome::Decoded(event)) => {
                         if event_tx.send(event).await.is_err() {
                             warn!(bridge = %bridge_address, "Event processor gone, stopping subscription");
                             break;
                         }
                     }
-                    Ok(None) => {}
-                    Err(_) => {}
+                    Ok(DecodeOutcome::NotReported) => {}
+                    Ok(DecodeOutcome::DataLost(reason)) => {
+                        warn!(bridge = %bridge_address, tx = ?tx_hash, "Bridge event lost: {}", reason);
+                    }
+                    Err(e) => {
+                        warn!(bridge = %bridge_address, "Dropping log that failed to decode: {:#}", e);
+                    }
                 }
             }
             _ = shutdown_requested(&mut shutdown) => {

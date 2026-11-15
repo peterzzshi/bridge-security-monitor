@@ -2,8 +2,8 @@ use crate::bridge_decoder::BridgeProtocol;
 use crate::bridge_normalizer::BridgeNormalizer;
 use crate::config::Token;
 use crate::rpc_retry::RetryableRpcClient;
-use anyhow::Result;
-use dex_ingester_common::Event;
+use anyhow::{bail, Result};
+use dex_ingester_common::{DecodeOutcome, Event};
 use solana_sdk::pubkey::Pubkey;
 use solana_sdk::signature::Signature;
 use std::collections::BTreeMap;
@@ -76,8 +76,9 @@ impl BridgeHandler {
         );
 
         let Some(tx_data) = tx.transaction.transaction.decode() else {
-            warn!("Failed to decode transaction: {}", signature);
-            return Ok(vec![]);
+            // The transaction exists and succeeded, but cannot be read: its instructions are
+            // lost. Reporting that as an empty result would hide real data loss.
+            bail!("failed to decode transaction {}", signature);
         };
 
         // Extract account keys from the already-decoded transaction message
@@ -139,11 +140,9 @@ impl BridgeHandler {
 
             // TransferNative (5) and TransferWrapped (4) are the outgoing legs; the message they
             // publish supplies the sequence and emitter identity.
-            let target_chain = if instruction_data.len() >= 54 {
-                u16::from_le_bytes([instruction_data[52], instruction_data[53]])
-            } else {
-                0
-            };
+            let target_chain =
+                crate::bridge_decoder::transfer_target_chain_with_discriminator(instruction_data)
+                    .unwrap_or(0);
             let published_message = match instruction_data.first() {
                 Some(4) | Some(5) => crate::posted_message::select(&published, target_chain),
                 _ => None,
@@ -167,8 +166,16 @@ impl BridgeHandler {
                 )
                 .await
             {
-                Ok(event) => {
+                Ok(DecodeOutcome::Decoded(event)) => {
                     events.push(event);
+                }
+                Ok(DecodeOutcome::NotReported) => {}
+                Ok(DecodeOutcome::DataLost(reason)) => {
+                    warn!(
+                        signature = %signature,
+                        instruction_index = i,
+                        "Bridge event lost: {}", reason
+                    );
                 }
                 Err(e) => {
                     warn!("Failed to decode bridge instruction: {:#}", e);
@@ -177,9 +184,5 @@ impl BridgeHandler {
         }
 
         Ok(events)
-    }
-
-    pub fn protocol(&self) -> BridgeProtocol {
-        self.normalizer.protocol()
     }
 }

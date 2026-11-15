@@ -52,5 +52,4 @@ Dapr delivers a CloudEvent whose `data_base64` holds the Avro-binary alert. A mi
 payload is logged and dropped; the handler still returns 200 so the sidecar does not redeliver a
 poison message indefinitely.
 
-See [ARCHITECTURE.md](../ARCHITECTURE.md) for the full data flow and
-[DATA_MODEL.md](../DATA_MODEL.md#storage) for the Redis key layout.
+See [ARCHITECTURE.md](../ARCHITECTURE.md) for the full data flow and the alert storage layout.

@@ -66,7 +66,6 @@ which they reliably do.
 ## Documentation
 
 - [ARCHITECTURE.md](ARCHITECTURE.md) — data flow, design decisions, alert semantics
-- [DATA_MODEL.md](DATA_MODEL.md) — event and alert schemas
 - [GAPS.md](GAPS.md) — known limitations and outstanding defects
 - [AGENT.md](AGENT.md) — conventions and commands
 

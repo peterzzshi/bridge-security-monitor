@@ -1,6 +1,8 @@
 use anyhow::{bail, Context, Result};
 use apache_avro::Decimal;
-use dex_ingester_common::{BridgeTransferEvent, Event, TransferDirection};
+use dex_ingester_common::{
+    wormhole_payload_amount, BridgeTransferEvent, DecodeOutcome, Event, TransferDirection,
+};
 use ethers::abi::{decode as abi_decode, ParamType, Token};
 use ethers::contract::{EthEvent, EthLogDecode};
 use ethers::prelude::*;
@@ -39,30 +41,6 @@ fn u256_to_decimal(value: U256) -> Decimal {
     value.to_big_endian(&mut bytes);
     let big_int = BigInt::from_bytes_be(num_bigint::Sign::Plus, &bytes);
     Decimal::from(big_int.to_signed_bytes_be())
-}
-
-/// Normalize amount to 18 decimals: rawAmount * 10^(18 - decimals)
-fn normalize_to_18_decimals(amount: Decimal, decimals: u8) -> Decimal {
-    if decimals == 18 {
-        return amount;
-    }
-    let scale_factor = 18i32 - decimals as i32;
-    if scale_factor == 0 {
-        return amount;
-    }
-    let ten = BigInt::from(10);
-    let multiplier = if scale_factor > 0 {
-        ten.pow(scale_factor as u32)
-    } else {
-        // Scale down if decimals > 18 (shouldn't happen for standard tokens)
-        return amount;
-    };
-
-    // Convert Decimal to BigInt, multiply, convert back
-    let amount_bytes: Vec<u8> = amount.try_into().unwrap_or_else(|_| vec![0]);
-    let amount_bigint = BigInt::from_signed_bytes_be(&amount_bytes);
-    let normalized = amount_bigint * multiplier;
-    Decimal::from(normalized.to_signed_bytes_be())
 }
 
 // LogMessagePublished is emitted by the Wormhole core contract (0x98f3c9e6...) when any
@@ -185,9 +163,8 @@ pub fn decode(
     gas_price: String,
     token: String,
     token_symbol: Option<String>,
-    token_decimals: Option<u8>,
     transaction_input: Option<&ethers::types::Bytes>,
-) -> Result<Event> {
+) -> Result<DecodeOutcome> {
     tracing::info!(
         protocol = protocol.as_str(),
         block = block_number,
@@ -209,10 +186,9 @@ pub fn decode(
                 let token_bridge = H160::from_str(&bridge_address)
                     .with_context(|| format!("invalid bridge address: {bridge_address}"))?;
                 if event.sender != token_bridge {
-                    bail!(
-                        "LogMessagePublished from a different sender: {:?}",
-                        event.sender
-                    );
+                    // The core contract publishes for every Wormhole application. A message from
+                    // a different application is routine, not a decode failure.
+                    return Ok(DecodeOutcome::NotReported);
                 }
 
                 // TokenBridge Transfer payload layout (all fields big-endian), matching
@@ -222,13 +198,12 @@ pub fn decode(
                 // fee u256 [101..133]
                 let payload = event.payload.as_ref();
                 if payload.len() < 133 {
-                    bail!(
-                        "Payload too short for token transfer: {} bytes",
-                        payload.len()
-                    );
+                    // A message from this bridge that is too short to be a token transfer:
+                    // attesting or governance traffic travels the same path.
+                    return Ok(DecodeOutcome::NotReported);
                 }
                 if payload[0] != 1 {
-                    bail!("Not a token transfer payload (type {})", payload[0]);
+                    return Ok(DecodeOutcome::NotReported);
                 }
 
                 // Extract amount (bytes 1-33, big-endian U256)
@@ -240,118 +215,112 @@ pub fn decode(
 
                 let recipient = &payload[67..99];
 
-                let normalized_amount = token_decimals
-                    .map(|d| normalize_to_18_decimals(raw_amount.clone(), d))
-                    .unwrap_or(raw_amount);
+                // The payload amount is 8-decimal regardless of the token, so it converts by a
+                // fixed factor. See `dex_ingester_common::wormhole_payload_amount`.
+                let normalized_amount = wormhole_payload_amount(raw_amount);
 
                 // VAA emitter identity: the token bridge contract, left-padded to 32 bytes as
                 // Wormhole reports it, so the triple matches what the unlock side reads.
                 let emitter = wormhole_emitter(token_bridge, 2); // Ethereum mainnet is chain 2
                 let message_hash = format!("{}:{}:{}", emitter.0, emitter.1, event.sequence);
 
-                Ok(Event::Transfer(BridgeTransferEvent {
-                    event_id,
-                    block_number,
-                    block_timestamp,
-                    transaction_hash: format!("{:?}", transaction_hash),
-                    log_index,
-                    chain,
-                    chain_name,
-                    bridge_address,
-                    protocol: protocol.as_str().to_string(),
-                    direction: TransferDirection::Lock,
-                    gas_used,
-                    gas_price: gas_price.clone(),
-                    event_timestamp,
-                    sender: format!("{:?}", event.sender),
-                    recipient: format!("0x{}", hex::encode(recipient)),
-                    token: token.clone(),
-                    token_symbol: token_symbol.clone(),
-                    amount: normalized_amount,
-                    destination_chain: Some(format!("wormhole:{}", target_chain)),
-                    source_chain: None,
-                    message_hash: Some(message_hash),
-                    sequence_number: Some(event.sequence as i64),
-                }))
+                Ok(DecodeOutcome::Decoded(Event::Transfer(
+                    BridgeTransferEvent {
+                        event_id,
+                        block_number,
+                        block_timestamp,
+                        transaction_hash: format!("{:?}", transaction_hash),
+                        log_index,
+                        chain,
+                        chain_name,
+                        bridge_address,
+                        protocol: protocol.as_str().to_string(),
+                        direction: TransferDirection::Lock,
+                        gas_used,
+                        gas_price: gas_price.clone(),
+                        event_timestamp,
+                        sender: format!("{:?}", event.sender),
+                        recipient: format!("0x{}", hex::encode(recipient)),
+                        token: token.clone(),
+                        token_symbol: token_symbol.clone(),
+                        amount: normalized_amount,
+                        destination_chain: Some(format!("wormhole:{}", target_chain)),
+                        source_chain: None,
+                        message_hash: Some(message_hash),
+                        sequence_number: Some(event.sequence as i64),
+                    },
+                )))
             } else if log.topics[0] == WormholeTransferRedeemed::signature() {
                 let event =
                     <WormholeTransferRedeemed as EthLogDecode>::decode_log(&log.clone().into())
                         .context("failed to decode WormholeTransferRedeemed")?;
 
-                // Parse VAA from transaction input calldata to extract the real transfer amount
-                let amount = if let Some(input) = transaction_input {
-                    match crate::vaa_parser::extract_vaa_from_calldata(input) {
-                        Ok(vaa_bytes) => {
-                            match crate::vaa_parser::parse_token_bridge_transfer(&vaa_bytes) {
-                                Ok(transfer) => {
-                                    let normalized_amount = token_decimals
-                                        .map(|d| {
-                                            normalize_to_18_decimals(transfer.amount.clone(), d)
-                                        })
-                                        .unwrap_or(transfer.amount);
-                                    normalized_amount
-                                }
-                                Err(e) => {
-                                    tracing::warn!(
-                                        tx = %transaction_hash,
-                                        "Failed to parse VAA payload: {:#}",
-                                        e
-                                    );
-                                    Decimal::from(vec![0])
-                                }
-                            }
-                        }
-                        Err(e) => {
-                            tracing::warn!(
-                                tx = %transaction_hash,
-                                "Failed to extract VAA from calldata: {:#}",
-                                e
-                            );
-                            Decimal::from(vec![0])
-                        }
-                    }
-                } else {
-                    tracing::warn!(
-                        tx = %transaction_hash,
-                        "No transaction input available for VAA parsing"
-                    );
-                    Decimal::from(vec![0])
+                // The redeem event carries no amount; it is only in the VAA submitted with the
+                // call. Without it there is no amount to report, and a placeholder zero would
+                // read downstream as a lock/unlock pair whose amounts differ by the whole
+                // transfer — so the event is dropped rather than fabricated. Every branch below
+                // is lost data, not an unrelated log.
+                let Some(input) = transaction_input else {
+                    return Ok(DecodeOutcome::DataLost(
+                        "no transaction input available for VAA parsing".to_string(),
+                    ));
                 };
+                let vaa_bytes = match crate::vaa_parser::extract_vaa_from_calldata(input) {
+                    Ok(bytes) => bytes,
+                    Err(e) => {
+                        return Ok(DecodeOutcome::DataLost(format!(
+                            "failed to extract VAA from calldata: {e:#}"
+                        )))
+                    }
+                };
+                let transfer = match crate::vaa_parser::parse_token_bridge_transfer(&vaa_bytes) {
+                    Ok(transfer) => transfer,
+                    Err(e) => {
+                        return Ok(DecodeOutcome::DataLost(format!(
+                            "failed to parse VAA payload: {e:#}"
+                        )))
+                    }
+                };
+                let amount = wormhole_payload_amount(transfer.amount);
 
-                Ok(Event::Transfer(BridgeTransferEvent {
-                    event_id,
-                    block_number,
-                    block_timestamp,
-                    transaction_hash: format!("{:?}", transaction_hash),
-                    log_index,
-                    chain,
-                    chain_name,
-                    bridge_address,
-                    protocol: protocol.as_str().to_string(),
-                    direction: TransferDirection::Unlock,
-                    gas_used,
-                    gas_price: gas_price.clone(),
-                    event_timestamp,
-                    sender: format!("0x{}", hex::encode(event.emitter_address)),
-                    recipient: "".to_string(),
-                    token: token.clone(),
-                    token_symbol: token_symbol.clone(),
-                    amount,
-                    destination_chain: None,
-                    source_chain: Some(format!("eip155:{}", event.emitter_chain_id)),
-                    // VAA identity: emitter_chain:emitter_address:sequence uniquely identifies a
-                    // Wormhole message and enables cross-chain correlation when the Solana side
-                    // also parses VAA data.
-                    message_hash: Some(format!(
-                        "{}:{}:{}",
-                        event.emitter_chain_id,
-                        hex::encode(event.emitter_address),
-                        event.sequence,
-                    )),
-                    sequence_number: Some(event.sequence as i64),
-                }))
+                Ok(DecodeOutcome::Decoded(Event::Transfer(
+                    BridgeTransferEvent {
+                        event_id,
+                        block_number,
+                        block_timestamp,
+                        transaction_hash: format!("{:?}", transaction_hash),
+                        log_index,
+                        chain,
+                        chain_name,
+                        bridge_address,
+                        protocol: protocol.as_str().to_string(),
+                        direction: TransferDirection::Unlock,
+                        gas_used,
+                        gas_price: gas_price.clone(),
+                        event_timestamp,
+                        sender: format!("0x{}", hex::encode(event.emitter_address)),
+                        recipient: "".to_string(),
+                        token: token.clone(),
+                        token_symbol: token_symbol.clone(),
+                        amount,
+                        destination_chain: None,
+                        source_chain: Some(format!("eip155:{}", event.emitter_chain_id)),
+                        // VAA identity: emitter_chain:emitter_address:sequence uniquely identifies a
+                        // Wormhole message and enables cross-chain correlation when the Solana side
+                        // also parses VAA data.
+                        message_hash: Some(format!(
+                            "{}:{}:{}",
+                            event.emitter_chain_id,
+                            hex::encode(event.emitter_address),
+                            event.sequence,
+                        )),
+                        sequence_number: Some(event.sequence as i64),
+                    },
+                )))
             } else {
-                bail!("unknown Wormhole event signature: {:?}", log.topics[0])
+                // The subscription filters by address, so this contract emits this signature
+                // for a purpose this decoder does not model. Not a failure.
+                Ok(DecodeOutcome::NotReported)
             }
         }
         BridgeProtocol::LayerZero => {
@@ -383,30 +352,32 @@ pub fn decode(
                     None
                 };
 
-                Ok(Event::Transfer(BridgeTransferEvent {
-                    event_id,
-                    block_number,
-                    block_timestamp,
-                    transaction_hash: format!("{:?}", transaction_hash),
-                    log_index,
-                    chain,
-                    chain_name,
-                    bridge_address,
-                    protocol: protocol.as_str().to_string(),
-                    direction: TransferDirection::Lock,
-                    gas_used,
-                    gas_price: gas_price.clone(),
-                    event_timestamp,
-                    sender: "".to_string(),
-                    recipient: "".to_string(),
-                    token: "".to_string(),
-                    token_symbol: None,
-                    amount: Decimal::from(vec![0]),
-                    destination_chain: Some(format!("eip155:{}", dst_eid)),
-                    source_chain: None,
-                    message_hash,
-                    sequence_number: Some(nonce as i64),
-                }))
+                Ok(DecodeOutcome::Decoded(Event::Transfer(
+                    BridgeTransferEvent {
+                        event_id,
+                        block_number,
+                        block_timestamp,
+                        transaction_hash: format!("{:?}", transaction_hash),
+                        log_index,
+                        chain,
+                        chain_name,
+                        bridge_address,
+                        protocol: protocol.as_str().to_string(),
+                        direction: TransferDirection::Lock,
+                        gas_used,
+                        gas_price: gas_price.clone(),
+                        event_timestamp,
+                        sender: "".to_string(),
+                        recipient: "".to_string(),
+                        token: "".to_string(),
+                        token_symbol: None,
+                        amount: Decimal::from(vec![0]),
+                        destination_chain: Some(format!("eip155:{}", dst_eid)),
+                        source_chain: None,
+                        message_hash,
+                        sequence_number: Some(nonce as i64),
+                    },
+                )))
             } else if log.topics[0] == packet_verified_topic0() {
                 let event = decode_packet_verified(log)
                     .context("failed to decode LayerZeroPacketVerified")?;
@@ -418,33 +389,264 @@ pub fn decode(
                     None
                 };
 
-                Ok(Event::Transfer(BridgeTransferEvent {
-                    event_id,
-                    block_number,
-                    block_timestamp,
-                    transaction_hash: format!("{:?}", transaction_hash),
-                    log_index,
-                    chain,
-                    chain_name,
-                    bridge_address,
-                    protocol: protocol.as_str().to_string(),
-                    direction: TransferDirection::Unlock,
-                    gas_used,
-                    gas_price: gas_price.clone(),
-                    event_timestamp,
-                    sender: "".to_string(),
-                    recipient: format!("{:?}", event.receiver),
-                    token: "".to_string(),
-                    token_symbol: None,
-                    amount: Decimal::from(vec![0]),
-                    destination_chain: None,
-                    source_chain: Some(format!("eip155:{}", event.src_eid)),
-                    message_hash,
-                    sequence_number: Some(event.nonce as i64),
-                }))
+                Ok(DecodeOutcome::Decoded(Event::Transfer(
+                    BridgeTransferEvent {
+                        event_id,
+                        block_number,
+                        block_timestamp,
+                        transaction_hash: format!("{:?}", transaction_hash),
+                        log_index,
+                        chain,
+                        chain_name,
+                        bridge_address,
+                        protocol: protocol.as_str().to_string(),
+                        direction: TransferDirection::Unlock,
+                        gas_used,
+                        gas_price: gas_price.clone(),
+                        event_timestamp,
+                        sender: "".to_string(),
+                        recipient: format!("{:?}", event.receiver),
+                        token: "".to_string(),
+                        token_symbol: None,
+                        amount: Decimal::from(vec![0]),
+                        destination_chain: None,
+                        source_chain: Some(format!("eip155:{}", event.src_eid)),
+                        message_hash,
+                        sequence_number: Some(event.nonce as i64),
+                    },
+                )))
             } else {
-                bail!("unknown LayerZero event signature: {:?}", log.topics[0])
+                Ok(DecodeOutcome::NotReported)
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ethers::abi::encode as abi_encode;
+    use ethers::types::U256;
+
+    const TOKEN_BRIDGE: &str = "3ee18b2214aff97000d974cf647e7c347e8fa585";
+    const SEQUENCE: u64 = 42;
+    /// 100 WETH at 8 decimals — the form the token bridge encodes into every payload.
+    const WETH_EIGHT_DECIMALS: u64 = 10_000_000_000;
+    /// The same 100 WETH at 18 decimals.
+    const WETH_EIGHTEEN_DECIMALS: u128 = 100_000_000_000_000_000_000;
+
+    fn bridge_address() -> Address {
+        Address::from_slice(&hex::decode(TOKEN_BRIDGE).expect("valid hex"))
+    }
+
+    fn transfer_payload(amount: u64, to_chain: u16) -> Bytes {
+        let mut payload = vec![0u8; 133];
+        payload[0] = 1;
+        let mut amount_bytes = [0u8; 32];
+        U256::from(amount).to_big_endian(&mut amount_bytes);
+        payload[1..33].copy_from_slice(&amount_bytes);
+        payload[99..101].copy_from_slice(&to_chain.to_be_bytes());
+        Bytes::from(payload)
+    }
+
+    /// `LogMessagePublished(address indexed sender, uint64 sequence, uint32 nonce, bytes payload, uint8 consistencyLevel)`
+    fn lock_log(sequence: u64, payload: Bytes) -> Log {
+        let mut sender_topic = [0u8; 32];
+        sender_topic[12..].copy_from_slice(bridge_address().as_bytes());
+
+        Log {
+            address: bridge_address(),
+            topics: vec![
+                WormholeLogMessagePublished::signature(),
+                H256::from(sender_topic),
+            ],
+            data: Bytes::from(abi_encode(&[
+                Token::Uint(U256::from(sequence)),
+                Token::Uint(U256::from(0u64)),
+                Token::Bytes(payload.to_vec()),
+                Token::Uint(U256::from(15u64)),
+            ])),
+            ..Default::default()
+        }
+    }
+
+    /// `TransferRedeemed(uint16 indexed emitterChainId, bytes32 indexed emitterAddress, uint64 indexed sequence)`
+    fn unlock_log(emitter_chain: u16, emitter: [u8; 32], sequence: u64) -> Log {
+        let mut chain_topic = [0u8; 32];
+        chain_topic[30..].copy_from_slice(&emitter_chain.to_be_bytes());
+        let mut sequence_topic = [0u8; 32];
+        sequence_topic[24..].copy_from_slice(&sequence.to_be_bytes());
+
+        Log {
+            address: bridge_address(),
+            topics: vec![
+                WormholeTransferRedeemed::signature(),
+                H256::from(chain_topic),
+                H256::from(emitter),
+                H256::from(sequence_topic),
+            ],
+            data: Bytes::new(),
+            ..Default::default()
+        }
+    }
+
+    fn calldata_carrying(payload: &[u8]) -> Bytes {
+        let mut calldata = vec![0xc6, 0x87, 0x85, 0x19]; // completeTransfer(bytes)
+        calldata.extend_from_slice(&[0u8; 31]);
+        calldata.push(32); // offset to the bytes argument
+        calldata.extend_from_slice(&[0u8; 28]);
+        calldata.extend_from_slice(&(payload.len() as u32).to_be_bytes());
+        calldata.extend_from_slice(payload);
+        Bytes::from(calldata)
+    }
+
+    fn decode_transfer(outcome: DecodeOutcome) -> BridgeTransferEvent {
+        match outcome {
+            DecodeOutcome::Decoded(Event::Transfer(transfer)) => transfer,
+            other => panic!("expected a decoded transfer, got {other:?}"),
+        }
+    }
+
+    /// Both legs are decoded from inputs that share only the Wormhole message identity, so this
+    /// is the test that would fail if padding, byte order, or amount scale drifted on one side.
+    /// Before the payload-scale fix this produced 1e20 on the lock and 1e8 on the unlock.
+    #[test]
+    fn lock_and_unlock_of_one_weth_transfer_agree_on_hash_and_amount() {
+        let lock = decode_transfer(
+            decode(
+                &lock_log(SEQUENCE, transfer_payload(WETH_EIGHT_DECIMALS, 1)),
+                BridgeProtocol::Wormhole,
+                "eip155:1".to_string(),
+                "Ethereum".to_string(),
+                format!("0x{TOKEN_BRIDGE}"),
+                "lock".to_string(),
+                1,
+                1,
+                H256::zero(),
+                0,
+                1,
+                0,
+                "0".to_string(),
+                "0xtoken".to_string(),
+                Some("WETH".to_string()),
+                None,
+            )
+            .expect("lock decodes"),
+        );
+
+        let payload = transfer_payload(WETH_EIGHT_DECIMALS, 1);
+        let (_, emitter) = wormhole_emitter(bridge_address(), 2);
+        let emitter: [u8; 32] = hex::decode(&emitter)
+            .expect("emitter hex")
+            .try_into()
+            .expect("32 bytes");
+        let unlock = decode_transfer(
+            decode(
+                &unlock_log(2, emitter, SEQUENCE),
+                BridgeProtocol::Wormhole,
+                "eip155:1".to_string(),
+                "Ethereum".to_string(),
+                format!("0x{TOKEN_BRIDGE}"),
+                "unlock".to_string(),
+                2,
+                2,
+                H256::zero(),
+                1,
+                2,
+                0,
+                "0".to_string(),
+                "0xtoken".to_string(),
+                Some("WETH".to_string()),
+                Some(&calldata_carrying(&payload)),
+            )
+            .expect("unlock decodes"),
+        );
+
+        assert_eq!(lock.direction, TransferDirection::Lock);
+        assert_eq!(unlock.direction, TransferDirection::Unlock);
+        assert_eq!(lock.message_hash, unlock.message_hash);
+        assert_eq!(lock.amount, unlock.amount);
+        assert_eq!(
+            lock.amount,
+            Decimal::from(BigInt::from(WETH_EIGHTEEN_DECIMALS).to_signed_bytes_be())
+        );
+    }
+
+    #[test]
+    fn unlock_without_calldata_is_reported_lost_rather_than_emitted_with_a_zero_amount() {
+        let outcome = decode(
+            &unlock_log(2, [7u8; 32], SEQUENCE),
+            BridgeProtocol::Wormhole,
+            "eip155:1".to_string(),
+            "Ethereum".to_string(),
+            format!("0x{TOKEN_BRIDGE}"),
+            "unlock".to_string(),
+            1,
+            1,
+            H256::zero(),
+            0,
+            1,
+            0,
+            "0".to_string(),
+            "0xtoken".to_string(),
+            None,
+            None,
+        )
+        .expect("a missing VAA is data loss, not a decode error");
+
+        match outcome {
+            DecodeOutcome::DataLost(reason) => {
+                assert!(
+                    reason.contains("transaction input"),
+                    "reason should name the missing calldata, got: {reason}"
+                );
+            }
+            other => panic!("expected the unlock to be reported as lost, got {other:?}"),
+        }
+    }
+
+    /// The core contract publishes for every Wormhole application. Those messages are expected,
+    /// so they must not be reported as decode failures.
+    #[test]
+    fn message_from_another_wormhole_app_is_not_reported() {
+        let mut other_sender = [0u8; 32];
+        other_sender[12..].copy_from_slice([0x11u8; 20].as_slice());
+
+        let log = Log {
+            address: bridge_address(),
+            topics: vec![
+                WormholeLogMessagePublished::signature(),
+                H256::from(other_sender),
+            ],
+            data: Bytes::from(abi_encode(&[
+                Token::Uint(U256::from(SEQUENCE)),
+                Token::Uint(U256::from(0u64)),
+                Token::Bytes(transfer_payload(WETH_EIGHT_DECIMALS, 1).to_vec()),
+                Token::Uint(U256::from(15u64)),
+            ])),
+            ..Default::default()
+        };
+
+        let outcome = decode(
+            &log,
+            BridgeProtocol::Wormhole,
+            "eip155:1".to_string(),
+            "Ethereum".to_string(),
+            format!("0x{TOKEN_BRIDGE}"),
+            "lock".to_string(),
+            1,
+            1,
+            H256::zero(),
+            0,
+            1,
+            0,
+            "0".to_string(),
+            "0xtoken".to_string(),
+            None,
+            None,
+        )
+        .expect("an unrelated application is not a decode error");
+
+        assert!(matches!(outcome, DecodeOutcome::NotReported));
     }
 }

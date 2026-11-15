@@ -17,8 +17,6 @@ use crate::blockchain::RpcClient;
 #[derive(Debug)]
 pub struct TokenBridgeTransfer {
     pub amount: Decimal,
-    pub token_address: [u8; 32],
-    pub token_chain: u16,
 }
 
 /// Wormhole VAA header fields needed for message_hash construction.
@@ -51,17 +49,7 @@ pub fn parse_token_bridge_transfer(payload: &[u8]) -> Result<TokenBridgeTransfer
         .context("Failed to extract amount bytes")?;
     let amount = u256_to_decimal(&amount_bytes);
 
-    let token_address: [u8; 32] = payload[33..65]
-        .try_into()
-        .context("Failed to extract token address")?;
-
-    let token_chain = u16::from_be_bytes([payload[65], payload[66]]);
-
-    Ok(TokenBridgeTransfer {
-        amount,
-        token_address,
-        token_chain,
-    })
+    Ok(TokenBridgeTransfer { amount })
 }
 
 fn u256_to_decimal(bytes: &[u8; 32]) -> Decimal {
@@ -185,8 +173,11 @@ mod tests {
         payload.extend_from_slice(&[0u8; 32]); // fee
 
         let result = parse_token_bridge_transfer(&payload).unwrap();
-        assert_eq!(result.token_chain, 1);
-        assert_eq!(result.token_address, [0u8; 32]);
+        assert_eq!(
+            result.amount,
+            Decimal::from(BigInt::from(100u8).to_signed_bytes_be()),
+            "the transfer amount is read from bytes 1..33, ahead of the token fields"
+        );
     }
 
     #[test]
