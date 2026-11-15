@@ -57,3 +57,27 @@ spec:
     default: /events/reentrancy
 scopes:
   - alerting-service
+---
+apiVersion: dapr.io/v2alpha1
+kind: Subscription
+metadata:
+  name: bridge-alerts-unusual-size
+spec:
+  pubsubname: kafka-pubsub
+  topic: bridge-alerts-unusual-size
+  routes:
+    default: /events/unusual-size
+scopes:
+  - alerting-service
+---
+apiVersion: dapr.io/v2alpha1
+kind: Subscription
+metadata:
+  name: bridge-alerts-cross-chain-correlation
+spec:
+  pubsubname: kafka-pubsub
+  topic: bridge-alerts-cross-chain-correlation
+  routes:
+    default: /events/cross-chain-correlation
+scopes:
+  - alerting-service

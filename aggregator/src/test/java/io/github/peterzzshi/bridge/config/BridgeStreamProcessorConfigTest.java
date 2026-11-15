@@ -31,6 +31,7 @@ class BridgeStreamProcessorConfigTest {
     env.put("EXPLOIT_SESSION_GAP_SECONDS", "60");
     env.put("REENTRANCY_WINDOW_SECONDS", "5");
     env.put("UNUSUAL_SIZE_WINDOW_SECONDS", "300");
+    env.put("CORRELATION_GAP_SECONDS", "300");
     env.put("RESTART_MAX_ATTEMPTS", "3");
     env.put("RESTART_DELAY_SECONDS", "10");
     env.put("CHECKPOINT_INTERVAL_SECONDS", "60");
@@ -66,6 +67,7 @@ class BridgeStreamProcessorConfigTest {
     assertEquals(5, config.reentrancyWindowSeconds());
     assertEquals(3, config.restartMaxAttempts());
     assertEquals(10, config.restartDelaySeconds());
+    assertEquals(300, config.correlationGapSeconds());
   }
 
   @Test

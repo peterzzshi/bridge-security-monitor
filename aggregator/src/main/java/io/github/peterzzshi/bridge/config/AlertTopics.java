@@ -12,6 +12,7 @@ public final class AlertTopics {
   public static final String EXPLOIT_DETECTION = "bridge-alerts-exploit-detection";
   public static final String REENTRANCY = "bridge-alerts-reentrancy";
   public static final String UNUSUAL_SIZE = "bridge-alerts-unusual-size";
+  public static final String CROSS_CHAIN_CORRELATION = "bridge-alerts-cross-chain-correlation";
 
   private AlertTopics() {
   }

@@ -26,6 +26,13 @@ enum class SuspiciousPattern {
     UNUSUAL_SIZE
 }
 
+enum class CrossChainPattern {
+    CROSS_CHAIN_UNLOCK_WITHOUT_LOCK,
+    CROSS_CHAIN_LOCK_WITHOUT_UNLOCK,
+    CROSS_CHAIN_AMOUNT_MISMATCH,
+    CROSS_CHAIN_SAME_CHAIN
+}
+
 sealed interface Alert {
     val bridgeAddress: String
     val windowStart: Instant
@@ -123,3 +130,19 @@ data class UnusualSizeAlert(
 ) : Alert
 
 fun Alert.toJson(mapper: ObjectMapper): String = mapper.writeValueAsString(this)
+
+data class CrossChainCorrelationAlert(
+    val messageHash: String,
+    override val bridgeAddress: String,
+    val protocol: BridgeProtocol,
+    override val windowStart: Instant,
+    override val windowEnd: Instant,
+    override val severity: Severity,
+    override val alertType: String = "CROSS_CHAIN_CORRELATION",
+    val patterns: List<CrossChainPattern>,
+    val lockChain: String?,
+    val unlockChain: String?,
+    val lockAmount: BigInteger?,
+    val unlockAmount: BigInteger?,
+    val timeDelta: Long?,
+) : Alert

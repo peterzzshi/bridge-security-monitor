@@ -29,6 +29,7 @@ data class AlertFilters(
                 is io.github.peterzzshi.bridge.alerting.model.ReentrancyAlert -> alert.chain
                 is io.github.peterzzshi.bridge.alerting.model.UnusualSizeAlert -> alert.chain
                 is io.github.peterzzshi.bridge.alerting.model.CrossChainFlowAlert -> null
+                is io.github.peterzzshi.bridge.alerting.model.CrossChainCorrelationAlert -> null
             }
         if (chain != null && alertChain != chain) return false
 

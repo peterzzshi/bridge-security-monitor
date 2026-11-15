@@ -1,5 +1,6 @@
 package io.github.peterzzshi.bridge.mappers;
 
+import io.github.peterzzshi.bridge.model.CrossChainCorrelationAccumulator;
 import io.github.peterzzshi.bridge.model.CrossChainFlowAccumulator;
 import io.github.peterzzshi.bridge.model.ExploitDetectionAccumulator;
 import io.github.peterzzshi.bridge.model.ReentrancyAccumulator;
@@ -96,6 +97,20 @@ public final class AlertSeverity {
     }
     if (maxCalls == 2) {
       return Severity.MEDIUM;
+    }
+    return Severity.LOW;
+  }
+
+  /**
+   * A missing leg scores above a matching pair: value appearing with no lock behind it, or a lock
+   * that never unlocks, outranks an amount discrepancy between two legs that do exist.
+   */
+  public static Severity compute(final CrossChainCorrelationAccumulator acc) {
+    if (!acc.hasLock || !acc.hasUnlock) {
+      return Severity.HIGH;
+    }
+    if (!acc.patterns.isEmpty()) {
+      return Severity.CRITICAL;
     }
     return Severity.LOW;
   }

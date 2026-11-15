@@ -24,12 +24,12 @@ import io.ktor.server.websocket.WebSockets
 import io.ktor.server.websocket.pingPeriod
 import io.ktor.server.websocket.timeout
 import io.ktor.server.websocket.webSocket
-import java.util.UUID
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.channels.consumeEach
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import org.slf4j.LoggerFactory
+import java.util.UUID
 
 fun main() {
     val port = System.getenv("APP_PORT")?.toIntOrNull() ?: 8080
@@ -80,44 +80,6 @@ fun Application.module() {
     }
 
     routing {
-        post("/dapr/subscribe") {
-            val pubsubName = "kafka-pubsub"
-            val subscriptions =
-                listOf(
-                    mapOf(
-                        "pubsubname" to pubsubName,
-                        "topic" to "bridge-alerts-transfer-volume",
-                        "route" to "/events/transfer-volume"
-                    ),
-                    mapOf(
-                        "pubsubname" to pubsubName,
-                        "topic" to "bridge-alerts-supply-tracking",
-                        "route" to "/events/supply-tracking"
-                    ),
-                    mapOf(
-                        "pubsubname" to pubsubName,
-                        "topic" to "bridge-alerts-cross-chain-flow",
-                        "route" to "/events/cross-chain-flow"
-                    ),
-                    mapOf(
-                        "pubsubname" to pubsubName,
-                        "topic" to "bridge-alerts-exploit-detection",
-                        "route" to "/events/exploit-detection"
-                    ),
-                    mapOf(
-                        "pubsubname" to pubsubName,
-                        "topic" to "bridge-alerts-reentrancy",
-                        "route" to "/events/reentrancy",
-                    ),
-                    mapOf(
-                        "pubsubname" to pubsubName,
-                        "topic" to "bridge-alerts-unusual-size",
-                        "route" to "/events/unusual-size",
-                    ),
-                )
-            call.respond(subscriptions)
-        }
-
         post("/events/transfer-volume") {
             val body = call.receiveText()
             consumer.handleTransferVolume(body)
@@ -151,6 +113,12 @@ fun Application.module() {
         post("/events/unusual-size") {
             val body = call.receiveText()
             consumer.handleUnusualSize(body)
+            call.respond(HttpStatusCode.OK)
+        }
+
+        post("/events/cross-chain-correlation") {
+            val body = call.receiveText()
+            consumer.handleCrossChainCorrelation(body)
             call.respond(HttpStatusCode.OK)
         }
 

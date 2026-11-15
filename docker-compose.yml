@@ -8,6 +8,8 @@ x-topics: &topics
   TOPIC_ALERT_CROSS_CHAIN_FLOW: bridge-alerts-cross-chain-flow
   TOPIC_ALERT_EXPLOIT_DETECTION: bridge-alerts-exploit-detection
   TOPIC_ALERT_REENTRANCY: bridge-alerts-reentrancy
+  TOPIC_ALERT_UNUSUAL_SIZE: bridge-alerts-unusual-size
+  TOPIC_ALERT_CROSS_CHAIN_CORRELATION: bridge-alerts-cross-chain-correlation
 
 x-ingester-env: &ingester-env
   <<: *topics
@@ -67,6 +69,8 @@ services:
         kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists --topic $$TOPIC_ALERT_CROSS_CHAIN_FLOW --partitions 3 --replication-factor 1 --config retention.ms=604800000 &&
         kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists --topic $$TOPIC_ALERT_EXPLOIT_DETECTION --partitions 3 --replication-factor 1 --config retention.ms=604800000 &&
         kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists --topic $$TOPIC_ALERT_REENTRANCY --partitions 3 --replication-factor 1 --config retention.ms=604800000 &&
+        kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists --topic $$TOPIC_ALERT_UNUSUAL_SIZE --partitions 3 --replication-factor 1 --config retention.ms=604800000 &&
+        kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists --topic $$TOPIC_ALERT_CROSS_CHAIN_CORRELATION --partitions 3 --replication-factor 1 --config retention.ms=604800000 &&
         echo "All topics created"
     networks:
       - dex-analytics-network
@@ -206,6 +210,7 @@ services:
       - EXPLOIT_SESSION_GAP_SECONDS=60
       - REENTRANCY_WINDOW_SECONDS=5
       - UNUSUAL_SIZE_WINDOW_SECONDS=300
+      - CORRELATION_GAP_SECONDS=300
       # Bounded restarts: a permanently failing sink ends as a failed job, not a loop. Without
       # checkpointing, a restart replays the topic from earliest.
       - RESTART_MAX_ATTEMPTS=3

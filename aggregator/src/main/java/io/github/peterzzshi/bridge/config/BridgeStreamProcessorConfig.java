@@ -18,6 +18,7 @@ public record BridgeStreamProcessorConfig(
     int exploitSessionGapSeconds,
     int reentrancyWindowSeconds,
     int unusualSizeWindowSeconds,
+    int correlationGapSeconds,
     int restartMaxAttempts,
     int restartDelaySeconds,
     int checkpointIntervalSeconds) {
@@ -38,6 +39,7 @@ public record BridgeStreamProcessorConfig(
         positiveInt(env, "EXPLOIT_SESSION_GAP_SECONDS"),
         positiveInt(env, "REENTRANCY_WINDOW_SECONDS"),
         positiveInt(env, "UNUSUAL_SIZE_WINDOW_SECONDS"),
+        positiveInt(env, "CORRELATION_GAP_SECONDS"),
         positiveInt(env, "RESTART_MAX_ATTEMPTS"),
         positiveInt(env, "RESTART_DELAY_SECONDS"),
         positiveInt(env, "CHECKPOINT_INTERVAL_SECONDS"));

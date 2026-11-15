@@ -2,12 +2,14 @@ package io.github.peterzzshi.bridge;
 
 import io.github.peterzzshi.bridge.config.AlertTopics;
 import io.github.peterzzshi.bridge.config.BridgeStreamProcessorConfig;
+import io.github.peterzzshi.bridge.functions.CrossChainCorrelationAggregateFunction;
 import io.github.peterzzshi.bridge.functions.CrossChainFlowAggregateFunction;
 import io.github.peterzzshi.bridge.functions.ExploitDetectionAggregateFunction;
 import io.github.peterzzshi.bridge.functions.ReentrancyDetectionAggregateFunction;
 import io.github.peterzzshi.bridge.functions.SupplyTrackingAggregateFunction;
 import io.github.peterzzshi.bridge.functions.TransferVolumeAggregateFunction;
 import io.github.peterzzshi.bridge.functions.UnusualSizeAggregateFunction;
+import io.github.peterzzshi.bridge.mappers.CrossChainCorrelationAlertMapper;
 import io.github.peterzzshi.bridge.mappers.CrossChainFlowAlertMapper;
 import io.github.peterzzshi.bridge.mappers.ExploitDetectionAlertMapper;
 import io.github.peterzzshi.bridge.mappers.ReentrancyAlertMapper;
@@ -17,6 +19,7 @@ import io.github.peterzzshi.bridge.mappers.UnusualSizeAlertMapper;
 import io.github.peterzzshi.bridge.model.BridgeActivity;
 import io.github.peterzzshi.bridge.model.EventKind;
 import io.github.peterzzshi.bridge.model.WindowStamped;
+import io.github.peterzzshi.bridge.schema.alert.CrossChainCorrelationAlert;
 import io.github.peterzzshi.bridge.schema.alert.CrossChainFlowAlert;
 import io.github.peterzzshi.bridge.schema.alert.ExploitDetectionAlert;
 import io.github.peterzzshi.bridge.schema.alert.ReentrancyAlert;
@@ -90,8 +93,9 @@ public class BridgeStreamProcessor {
     buildExploitDetectionPipeline(activityStream, config);
     buildReentrancyDetectionPipeline(transferStream, config);
     buildUnusualSizePipeline(transferStream, config);
+    buildCrossChainCorrelationPipeline(transferStream, config);
 
-    LOG.info("Starting Bridge Stream Processor with 6 pipelines");
+    LOG.info("Starting Bridge Stream Processor with 7 pipelines");
     env.execute("Bridge Security Monitor");
   }
 
@@ -261,6 +265,39 @@ public class BridgeStreamProcessor {
         .map(new UnusualSizeAlertMapper(Duration.ofSeconds(config.unusualSizeWindowSeconds())))
         .sinkTo(sink)
         .name("Unusual Size Kafka Sink");
+  }
+
+  /**
+   * Correlates the two legs of one Wormhole message by {@code message_hash}, which both ingesters
+   * populate from the VAA header ({@code emitterChainId:emitterAddressHex:sequence}). A session
+   * window rather than a tumbling one: a tumbling window splits any pair that straddles a window
+   * boundary into a lock-only and an unlock-only window, manufacturing two false alerts, while a
+   * 5-minute gap still closes an unmatched leg and emits it.
+   */
+  private static void buildCrossChainCorrelationPipeline(
+      final DataStream<BridgeTransferEvent> transferStream,
+      final BridgeStreamProcessorConfig config) {
+    final KafkaSink<CrossChainCorrelationAlert> sink = KafkaSink.<CrossChainCorrelationAlert>builder()
+        .setBootstrapServers(config.kafkaBootstrapServers())
+        .setRecordSerializer(KafkaRecordSerializationSchema.builder()
+            .setTopic(AlertTopics.CROSS_CHAIN_CORRELATION)
+            .setValueSerializationSchema(
+                AvroSerializationSchema.forSpecific(CrossChainCorrelationAlert.class))
+            .build())
+        .setDeliveryGuarantee(DeliveryGuarantee.AT_LEAST_ONCE)
+        .build();
+
+    transferStream
+        .filter(event -> event.getMessageHash() != null)
+        .keyBy(BridgeTransferEvent::getMessageHash)
+        .window(EventTimeSessionWindows.withGap(
+            Duration.ofSeconds(config.correlationGapSeconds())))
+        .aggregate(new CrossChainCorrelationAggregateFunction(), new WindowStamp<>())
+        .filter(acc -> !acc.patterns.isEmpty())
+        .map(new CrossChainCorrelationAlertMapper(
+            Duration.ofSeconds(config.correlationGapSeconds())))
+        .sinkTo(sink)
+        .name("Cross-Chain Correlation Kafka Sink");
   }
 
   /**

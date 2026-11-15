@@ -171,8 +171,10 @@ rather than an endless loop.
 
 ### Severity Thresholds
 
-Computed in `AlertSeverity`, calibrated for demo-level activity and expressed in raw token units
-(see the decimal caveat in `GAPS.md`):
+Computed in `AlertSeverity`, calibrated for demo-level activity. Amounts reaching the aggregator are
+already normalized to 18 decimals by the ingesters (`normalize_to_18_decimals` in both
+`bridge_decoder.rs` files), so the `BigInteger` thresholds below are in 18-decimal fixed-point units
+— `1e18` is one whole token:
 
 | Alert | LOW → CRITICAL |
 |---|---|
@@ -186,8 +188,13 @@ Computed in `AlertSeverity`, calibrated for demo-level activity and expressed in
 
 `TriState<T>` distinguishes three enrichment outcomes: `Undefined` (not seen), `Defined(value)`, and
 `Null` (enrichment failed). Merge keeps the first `Defined` value and propagates `Null`. It exists so a
-transport failure is never silently mistaken for "no data". Both ingesters currently hardcode
-`token_symbol: None`, so the mechanism is exercised structurally but not with real symbols.
+transport failure is never silently mistaken for "no data". Both ingesters resolve symbols and
+decimals
+from their `*-bridges.toml` token tables for the Wormhole paths
+(`evm-ingester/src/bridge_listener.rs:102`, `solana-ingester/src/bridge_handler.rs:101`); the
+LayerZero
+decode paths carry no token field at all and emit `token_symbol: None` with a zero amount
+(`evm-ingester/src/bridge_decoder.rs:352` and `:379`).
 
 ### Exploit Detection Patterns
 
@@ -197,5 +204,8 @@ Session window (60-s gap), evaluated per `(bridge, chain)`:
 2. **LARGE_TRANSFER** — a single transfer above the threshold
 3. **SUPPLY_MISMATCH** — netLocked vs netMinted differ by more than 10%
 
-Patterns 4–6 (unusual size via stddev, new address via block metadata, cross-chain correlation via
-message hash) need data the pipeline does not have yet. See `GAPS.md`.
+Patterns 4 and 5 run in their own pipelines with their own alert types, not in this function:
+`UNUSUAL_SIZE` (>3 stddev via Welford's algorithm, per token) and cross-chain correlation (session
+window keyed on `message_hash`). Pattern 6, new-address detection, is intentionally not
+implemented —
+it needs external state or unbounded Flink state and does not justify the complexity. See `GAPS.md`.

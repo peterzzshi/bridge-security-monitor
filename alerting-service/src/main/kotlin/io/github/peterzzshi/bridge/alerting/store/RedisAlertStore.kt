@@ -3,6 +3,7 @@ package io.github.peterzzshi.bridge.alerting.store
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.readValue
 import io.github.peterzzshi.bridge.alerting.model.Alert
+import io.github.peterzzshi.bridge.alerting.model.CrossChainCorrelationAlert
 import io.github.peterzzshi.bridge.alerting.model.CrossChainFlowAlert
 import io.github.peterzzshi.bridge.alerting.model.ExploitDetectionAlert
 import io.github.peterzzshi.bridge.alerting.model.ReentrancyAlert
@@ -73,6 +74,7 @@ class RedisAlertStore(
                 is ReentrancyAlert -> alert.chain
                 is UnusualSizeAlert -> alert.chain
                 is CrossChainFlowAlert -> "cross-chain"
+                is CrossChainCorrelationAlert -> "cross-chain"
             }
         return "bridge:alerts:${alert.bridgeAddress}:$chain"
     }
@@ -86,6 +88,7 @@ class RedisAlertStore(
             "EXPLOIT_DETECTION" -> mapper.readValue<ExploitDetectionAlert>(json)
             "REENTRANCY" -> mapper.readValue<ReentrancyAlert>(json)
             "UNUSUAL_SIZE" -> mapper.readValue<UnusualSizeAlert>(json)
+            "CROSS_CHAIN_CORRELATION" -> mapper.readValue<CrossChainCorrelationAlert>(json)
             else -> throw IllegalArgumentException("Unknown alert type: $alertType")
         }
     }

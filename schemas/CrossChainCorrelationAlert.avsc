@@ -1,0 +1,21 @@
+{
+  "type": "record",
+  "name": "CrossChainCorrelationAlert",
+  "namespace": "io.github.peterzzshi.bridge.schema.alert",
+  "doc": "Correlates the lock and unlock halves of a single cross-chain transfer by Wormhole message identity. The lock side, unlock side, or both may be absent: an unlock with no lock is a forged-VAA or missed-event signal, and a lock with no unlock is a stalled or censored message.",
+  "fields": [
+    {"name": "messageHash", "type": "string", "doc": "Wormhole message identity: emitterChainId:emitterAddressHex:sequence"},
+    {"name": "bridgeAddress", "type": "string"},
+    {"name": "protocol", "type": "BridgeProtocol"},
+    {"name": "windowStart", "type": {"type": "long", "logicalType": "timestamp-millis"}},
+    {"name": "windowEnd", "type": {"type": "long", "logicalType": "timestamp-millis"}},
+    {"name": "severity", "type": "Severity"},
+    {"name": "alertType", "type": "string", "default": "CROSS_CHAIN_CORRELATION"},
+    {"name": "patterns", "type": {"type": "array", "items": {"type": "enum", "name": "CrossChainPattern", "symbols": ["CROSS_CHAIN_UNLOCK_WITHOUT_LOCK", "CROSS_CHAIN_LOCK_WITHOUT_UNLOCK", "CROSS_CHAIN_AMOUNT_MISMATCH", "CROSS_CHAIN_SAME_CHAIN"]}}},
+    {"name": "lockChain", "type": ["null", "string"], "default": null, "doc": "CAIP-2 chain of the lock leg"},
+    {"name": "unlockChain", "type": ["null", "string"], "default": null, "doc": "CAIP-2 chain of the unlock leg"},
+    {"name": "lockAmount", "type": ["null", {"type": "bytes", "logicalType": "decimal", "precision": 78, "scale": 0}], "default": null, "doc": "Normalized to 18 decimals"},
+    {"name": "unlockAmount", "type": ["null", {"type": "bytes", "logicalType": "decimal", "precision": 78, "scale": 0}], "default": null, "doc": "Normalized to 18 decimals"},
+    {"name": "timeDelta", "type": ["null", "long"], "default": null, "doc": "Seconds from lock to unlock; negative means the unlock was observed first. Null when only one side was seen."}
+  ]
+}

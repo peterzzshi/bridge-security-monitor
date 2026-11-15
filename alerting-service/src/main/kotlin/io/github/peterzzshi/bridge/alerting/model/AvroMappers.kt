@@ -1,6 +1,7 @@
 package io.github.peterzzshi.bridge.alerting.model
 
 import java.math.BigInteger
+import io.github.peterzzshi.bridge.schema.alert.CrossChainCorrelationAlert as AvroCrossChainCorrelationAlert
 import io.github.peterzzshi.bridge.schema.alert.CrossChainFlowAlert as AvroCrossChainFlowAlert
 import io.github.peterzzshi.bridge.schema.alert.ExploitDetectionAlert as AvroExploitDetectionAlert
 import io.github.peterzzshi.bridge.schema.alert.ReentrancyAlert as AvroReentrancyAlert
@@ -86,6 +87,23 @@ fun AvroReentrancyAlert.toKotlinAlert(): ReentrancyAlert =
         transactionHash = this.transactionHash.toString(),
         lockCount = this.lockCount,
         unlockCount = this.unlockCount,
+    )
+
+fun AvroCrossChainCorrelationAlert.toKotlinAlert(): CrossChainCorrelationAlert =
+    CrossChainCorrelationAlert(
+        messageHash = this.messageHash.toString(),
+        bridgeAddress = this.bridgeAddress.toString(),
+        protocol = BridgeProtocol.valueOf(this.protocol.name),
+        windowStart = this.windowStart,
+        windowEnd = this.windowEnd,
+        severity = Severity.valueOf(this.severity.name),
+        alertType = this.alertType.toString(),
+        patterns = this.patterns.map { CrossChainPattern.valueOf(it.name) },
+        lockChain = this.lockChain,
+        unlockChain = this.unlockChain,
+        lockAmount = this.lockAmount?.let { BigInteger(it.toString()) },
+        unlockAmount = this.unlockAmount?.let { BigInteger(it.toString()) },
+        timeDelta = this.timeDelta,
     )
 
 fun AvroUnusualSizeAlert.toKotlinAlert(): UnusualSizeAlert =

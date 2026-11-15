@@ -10,6 +10,7 @@ import io.github.peterzzshi.bridge.alerting.model.identity
 import io.github.peterzzshi.bridge.alerting.model.toKotlinAlert
 import io.github.peterzzshi.bridge.alerting.store.AlertStore
 import io.github.peterzzshi.bridge.alerting.websocket.AlertBroadcaster
+import io.github.peterzzshi.bridge.schema.alert.CrossChainCorrelationAlert
 import io.github.peterzzshi.bridge.schema.alert.CrossChainFlowAlert
 import io.github.peterzzshi.bridge.schema.alert.ExploitDetectionAlert
 import io.github.peterzzshi.bridge.schema.alert.ReentrancyAlert
@@ -54,6 +55,9 @@ class AlertConsumer(
     suspend fun handleReentrancy(body: String) = handle(body, ReentrancyAlert::class.java) { it.toKotlinAlert() }
 
     suspend fun handleUnusualSize(body: String) = handle(body, UnusualSizeAlert::class.java) { it.toKotlinAlert() }
+
+    suspend fun handleCrossChainCorrelation(body: String) =
+        handle(body, CrossChainCorrelationAlert::class.java) { it.toKotlinAlert() }
 
     private suspend fun <T : SpecificRecordBase> handle(
         body: String,

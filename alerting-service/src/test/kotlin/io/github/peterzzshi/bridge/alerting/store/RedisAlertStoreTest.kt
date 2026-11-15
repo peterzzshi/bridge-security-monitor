@@ -2,12 +2,14 @@ package io.github.peterzzshi.bridge.alerting.store
 
 import io.github.peterzzshi.bridge.alerting.model.Alert
 import io.github.peterzzshi.bridge.alerting.model.BridgeProtocol
+import io.github.peterzzshi.bridge.alerting.model.CrossChainCorrelationAlert
 import io.github.peterzzshi.bridge.alerting.model.CrossChainFlowAlert
 import io.github.peterzzshi.bridge.alerting.model.ExploitDetectionAlert
 import io.github.peterzzshi.bridge.alerting.model.ReentrancyAlert
 import io.github.peterzzshi.bridge.alerting.model.Severity
 import io.github.peterzzshi.bridge.alerting.model.SupplyTrackingAlert
 import io.github.peterzzshi.bridge.alerting.model.TransferVolumeAlert
+import io.github.peterzzshi.bridge.alerting.model.UnusualSizeAlert
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -171,7 +173,9 @@ class RedisAlertStoreTest {
                 is SupplyTrackingAlert -> alert.chain
                 is ExploitDetectionAlert -> alert.chain
                 is ReentrancyAlert -> alert.chain
+                is UnusualSizeAlert -> alert.chain
                 is CrossChainFlowAlert -> "cross-chain"
+                is CrossChainCorrelationAlert -> "cross-chain"
             }
     }
 }
