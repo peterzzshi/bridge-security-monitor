@@ -65,17 +65,18 @@ fn normalize_to_18_decimals(amount: Decimal, decimals: u8) -> Decimal {
     Decimal::from(normalized.to_signed_bytes_be())
 }
 
-// The token bridge contract (0x3ee18B...) does not emit a lock event directly.
-// Outgoing transfers emit LogMessagePublished on the core Wormhole contract instead.
-// This struct is kept as a placeholder; it will never match logs from the token bridge address.
+// LogMessagePublished is emitted by the Wormhole core contract (0x98f3c9e6...) when any
+// cross-chain message is published, including token transfers initiated at the token bridge.
+// Real ABI: LogMessagePublished(address indexed sender, uint64 sequence, uint32 nonce, bytes payload, uint8 consistencyLevel)
 #[derive(Debug, Clone, PartialEq, EthEvent)]
-#[ethevent(name = "TransferSent")]
-pub struct WormholeTransferSent {
+#[ethevent(name = "LogMessagePublished")]
+pub struct WormholeLogMessagePublished {
     #[ethevent(indexed)]
     pub sender: Address,
-    pub target_chain: u16,
-    pub recipient: [u8; 32],
-    pub amount: U256,
+    pub sequence: u64,
+    pub nonce: u32,
+    pub payload: Bytes,
+    pub consistency_level: u8,
 }
 
 // Real ITokenBridge ABI: TransferRedeemed(uint16 indexed emitterChainId, bytes32 indexed emitterAddress, uint64 indexed sequence)
@@ -121,7 +122,6 @@ struct PacketVerifiedDecoded {
     src_eid: u32,
     nonce: u64,
     receiver: Address,
-    payload_hash: [u8; 32],
 }
 
 fn decode_packet_verified(log: &Log) -> Result<PacketVerifiedDecoded> {
@@ -153,20 +153,20 @@ fn decode_packet_verified(log: &Log) -> Result<PacketVerifiedDecoded> {
         Some(Token::Address(a)) => *a,
         _ => bail!("missing receiver"),
     };
-    let payload_hash = match tokens.get(2) {
-        Some(Token::FixedBytes(b)) => {
-            let mut arr = [0u8; 32];
-            arr.copy_from_slice(b);
-            arr
-        }
-        _ => bail!("missing payloadHash"),
-    };
     Ok(PacketVerifiedDecoded {
         src_eid,
         nonce,
         receiver,
-        payload_hash,
     })
+}
+
+/// Wormhole reports an EVM emitter as its 20-byte address left-padded to 32 bytes. The unlock
+/// path reads that padded form out of the VAA, so the lock path must produce the same bytes or
+/// the two legs never share a `message_hash`.
+fn wormhole_emitter(address: Address, chain: u16) -> (u16, String) {
+    let mut emitter = [0u8; 32];
+    emitter[12..].copy_from_slice(address.as_bytes());
+    (chain, hex::encode(emitter))
 }
 
 pub fn decode(
@@ -198,13 +198,56 @@ pub fn decode(
     );
     match protocol {
         BridgeProtocol::Wormhole => {
-            if log.topics[0] == WormholeTransferSent::signature() {
-                let event = <WormholeTransferSent as EthLogDecode>::decode_log(&log.clone().into())
-                    .context("failed to decode WormholeTransferSent")?;
-                let raw_amount = u256_to_decimal(event.amount);
+            if log.topics[0] == WormholeLogMessagePublished::signature() {
+                let event =
+                    <WormholeLogMessagePublished as EthLogDecode>::decode_log(&log.clone().into())
+                        .context("failed to decode LogMessagePublished")?;
+
+                // The core contract publishes for every Wormhole application. Only messages from
+                // this bridge's token contract are token transfers; `sender` is indexed, so the
+                // emitting contract is topics[1] and can be checked before decoding the payload.
+                let token_bridge = H160::from_str(&bridge_address)
+                    .with_context(|| format!("invalid bridge address: {bridge_address}"))?;
+                if event.sender != token_bridge {
+                    bail!(
+                        "LogMessagePublished from a different sender: {:?}",
+                        event.sender
+                    );
+                }
+
+                // TokenBridge Transfer payload layout (all fields big-endian), matching
+                // solana-ingester/src/vaa_parser.rs:
+                // payloadID u8 [0] | amount u256 [1..33] | tokenAddress [u8;32] [33..65] |
+                // tokenChain u16 [65..67] | to [u8;32] [67..99] | toChain u16 [99..101] |
+                // fee u256 [101..133]
+                let payload = event.payload.as_ref();
+                if payload.len() < 133 {
+                    bail!(
+                        "Payload too short for token transfer: {} bytes",
+                        payload.len()
+                    );
+                }
+                if payload[0] != 1 {
+                    bail!("Not a token transfer payload (type {})", payload[0]);
+                }
+
+                // Extract amount (bytes 1-33, big-endian U256)
+                let amount_bytes: [u8; 32] = payload[1..33].try_into()?;
+                let raw_amount = u256_to_decimal(U256::from_big_endian(&amount_bytes));
+
+                // Extract destination Wormhole chain (bytes 99-101) and recipient (bytes 67-99)
+                let target_chain = u16::from_be_bytes([payload[99], payload[100]]);
+
+                let recipient = &payload[67..99];
+
                 let normalized_amount = token_decimals
                     .map(|d| normalize_to_18_decimals(raw_amount.clone(), d))
                     .unwrap_or(raw_amount);
+
+                // VAA emitter identity: the token bridge contract, left-padded to 32 bytes as
+                // Wormhole reports it, so the triple matches what the unlock side reads.
+                let emitter = wormhole_emitter(token_bridge, 2); // Ethereum mainnet is chain 2
+                let message_hash = format!("{}:{}:{}", emitter.0, emitter.1, event.sequence);
 
                 Ok(Event::Transfer(BridgeTransferEvent {
                     event_id,
@@ -221,14 +264,14 @@ pub fn decode(
                     gas_price: gas_price.clone(),
                     event_timestamp,
                     sender: format!("{:?}", event.sender),
-                    recipient: format!("0x{}", hex::encode(event.recipient)),
+                    recipient: format!("0x{}", hex::encode(recipient)),
                     token: token.clone(),
                     token_symbol: token_symbol.clone(),
                     amount: normalized_amount,
-                    destination_chain: Some(format!("eip155:{}", event.target_chain)),
+                    destination_chain: Some(format!("wormhole:{}", target_chain)),
                     source_chain: None,
-                    message_hash: None,
-                    sequence_number: None,
+                    message_hash: Some(message_hash),
+                    sequence_number: Some(event.sequence as i64),
                 }))
             } else if log.topics[0] == WormholeTransferRedeemed::signature() {
                 let event =
@@ -324,14 +367,22 @@ pub fn decode(
                 // [49..81] receiver bytes32
                 // [81..113] guid   bytes32
                 let payload = event.encoded_payload.as_ref();
-                let (dst_eid, nonce, guid) = if payload.len() >= 113 {
+                let (src_eid, dst_eid, nonce) = if payload.len() >= 113 {
+                    let src_eid = u32::from_be_bytes(payload[9..13].try_into().unwrap_or([0; 4]));
                     let dst_eid = u32::from_be_bytes(payload[45..49].try_into().unwrap_or([0; 4]));
                     let nonce = u64::from_be_bytes(payload[1..9].try_into().unwrap_or([0; 8]));
-                    let guid = hex::encode(&payload[81..113]);
-                    (dst_eid, nonce as i64, Some(guid))
+                    (src_eid, dst_eid, nonce)
                 } else {
-                    (0u32, 0i64, None)
+                    (0u32, 0u32, 0u64)
                 };
+
+                // Construct canonical message_hash from srcEid and nonce (shared between PacketSent and PacketVerified)
+                let message_hash = if src_eid > 0 && nonce > 0 {
+                    Some(format!("{}:{}", src_eid, nonce))
+                } else {
+                    None
+                };
+
                 Ok(Event::Transfer(BridgeTransferEvent {
                     event_id,
                     block_number,
@@ -353,12 +404,20 @@ pub fn decode(
                     amount: Decimal::from(vec![0]),
                     destination_chain: Some(format!("eip155:{}", dst_eid)),
                     source_chain: None,
-                    message_hash: guid,
-                    sequence_number: Some(nonce),
+                    message_hash,
+                    sequence_number: Some(nonce as i64),
                 }))
             } else if log.topics[0] == packet_verified_topic0() {
                 let event = decode_packet_verified(log)
                     .context("failed to decode LayerZeroPacketVerified")?;
+
+                // Use same canonical hash: srcEid:nonce
+                let message_hash = if event.src_eid > 0 && event.nonce > 0 {
+                    Some(format!("{}:{}", event.src_eid, event.nonce))
+                } else {
+                    None
+                };
+
                 Ok(Event::Transfer(BridgeTransferEvent {
                     event_id,
                     block_number,
@@ -380,7 +439,7 @@ pub fn decode(
                     amount: Decimal::from(vec![0]),
                     destination_chain: None,
                     source_chain: Some(format!("eip155:{}", event.src_eid)),
-                    message_hash: Some(hex::encode(event.payload_hash)),
+                    message_hash,
                     sequence_number: Some(event.nonce as i64),
                 }))
             } else {

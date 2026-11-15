@@ -56,6 +56,7 @@ pub async fn decode_instruction(
     token_symbol: Option<&str>,
     token_decimals: Option<u8>,
     vaa_account: Option<&Pubkey>,
+    published_message: Option<&crate::posted_message::PostedMessage>,
     rpc_client: &RetryableRpcClient,
 ) -> Result<Event> {
     if data.is_empty() {
@@ -88,6 +89,7 @@ pub async fn decode_instruction(
         token_symbol,
         token_decimals,
         vaa_account,
+        published_message,
         rpc_client,
     )
     .await
@@ -118,6 +120,7 @@ async fn decode_wormhole(
     token_symbol: Option<&str>,
     token_decimals: Option<u8>,
     vaa_account: Option<&Pubkey>,
+    published_message: Option<&crate::posted_message::PostedMessage>,
     rpc_client: &RetryableRpcClient,
 ) -> Result<Event> {
     match discriminator {
@@ -138,6 +141,8 @@ async fn decode_wormhole(
             let normalized_amount = token_decimals
                 .map(|d| normalize_to_18_decimals(raw_amount.clone(), d))
                 .unwrap_or(raw_amount);
+            let message_hash = published_message.map(|m| m.message_hash());
+            let sequence_number = published_message.map(|m| m.sequence as i64);
 
             Ok(Event::Transfer(BridgeTransferEvent {
                 event_id,
@@ -160,8 +165,8 @@ async fn decode_wormhole(
                 amount: normalized_amount,
                 destination_chain: Some(format!("wormhole:{}", destination_chain)),
                 source_chain: None,
-                message_hash: None,
-                sequence_number: None,
+                message_hash,
+                sequence_number,
             }))
         }
         // TransferWrapped (4): outgoing burn of wrapped tokens on source chain.
@@ -196,7 +201,7 @@ async fn decode_wormhole(
                 wrapped_token_symbol: token_symbol.map(|s| s.to_string()),
                 amount: normalized_amount,
                 source_chain: None,
-                message_hash: None,
+                message_hash: published_message.map(|m| m.message_hash()),
             }))
         }
         // CompleteNative (2): incoming unlock. Amount is in the VAA account, not instruction bytes.

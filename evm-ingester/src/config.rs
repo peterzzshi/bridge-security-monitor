@@ -27,10 +27,22 @@ pub struct Bridge {
     pub name: String,
     pub protocol: BridgeProtocol,
     pub address: Address,
+    /// Additional contract watched under this bridge's identity, when the protocol splits
+    /// message publishing away from token custody.
+    pub core_address: Option<Address>,
     pub chain_id: String,
     pub rpc: Secret,
     pub confirmations: u64,
     pub retry: RetryConfig,
+}
+
+impl Bridge {
+    /// Every address whose logs belong to this bridge.
+    pub fn watched_addresses(&self) -> Vec<Address> {
+        let mut addresses = vec![self.address];
+        addresses.extend(self.core_address);
+        addresses
+    }
 }
 
 impl Config {
@@ -61,6 +73,14 @@ impl Config {
                     protocol: BridgeProtocol::from_str(&b.protocol)?,
                     address: Address::from_str(&b.address)
                         .with_context(|| format!("Invalid bridge address: {}", b.address))?,
+                    core_address: b
+                        .core_address
+                        .as_deref()
+                        .map(|core| {
+                            Address::from_str(core)
+                                .with_context(|| format!("Invalid bridge core_address: {core}"))
+                        })
+                        .transpose()?,
                     chain_id: "eip155:1".to_string(),
                     rpc: rpc.clone(),
                     confirmations: 12,
@@ -190,6 +210,22 @@ address = "0x1a44076050125825900e736c501f859c50fE728c"
                 symbol: "USDC".to_string(),
                 decimals: 6
             }
+        );
+    }
+
+    #[test]
+    fn core_address_is_watched_alongside_the_bridge() {
+        let bridge: Bridge = Config::load(lookup(&env_vars()), include_str!("../evm-bridges.toml"))
+            .expect("should load")
+            .bridges
+            .remove(0);
+
+        assert_eq!(
+            bridge.watched_addresses(),
+            vec![
+                Address::from_str("0x3ee18B2214AFF97000D974cf647E7C347E8fa585").unwrap(),
+                Address::from_str("0x98f3c9e6E3fAce36bAAd05FE09d375Ef1464288B").unwrap(),
+            ]
         );
     }
 

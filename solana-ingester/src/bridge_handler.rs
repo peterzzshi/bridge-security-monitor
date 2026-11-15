@@ -67,6 +67,14 @@ impl BridgeHandler {
 
         let fee = meta.fee as i64;
 
+        // Lock-side instructions do not carry the sequence: the core program assigns it when it
+        // publishes the message, which is only visible in the transaction's logs.
+        let program_id = *self.normalizer.program_id();
+        let published = crate::posted_message::collect(
+            &meta.log_messages.unwrap_or(Vec::new()),
+            program_id.as_array(),
+        );
+
         let Some(tx_data) = tx.transaction.transaction.decode() else {
             warn!("Failed to decode transaction: {}", signature);
             return Ok(vec![]);
@@ -129,6 +137,18 @@ impl BridgeHandler {
                 None
             };
 
+            // TransferNative (5) and TransferWrapped (4) are the outgoing legs; the message they
+            // publish supplies the sequence and emitter identity.
+            let target_chain = if instruction_data.len() >= 54 {
+                u16::from_le_bytes([instruction_data[52], instruction_data[53]])
+            } else {
+                0
+            };
+            let published_message = match instruction_data.first() {
+                Some(4) | Some(5) => crate::posted_message::select(&published, target_chain),
+                _ => None,
+            };
+
             match self
                 .normalizer
                 .normalize(
@@ -143,6 +163,7 @@ impl BridgeHandler {
                     token_symbol,
                     token_decimals,
                     vaa_account.as_ref(),
+                    published_message,
                 )
                 .await
             {

@@ -18,6 +18,12 @@ pub struct BridgeFile {
     pub name: String,
     pub protocol: String,
     pub address: String,
+    /// Second contract to watch under the same bridge identity. Wormhole splits custody
+    /// (token bridge) from message publishing (core bridge), and the token bridge emits
+    /// nothing on the lock side, so both addresses are subscribed and events from either
+    /// are attributed to `address`.
+    #[serde(default)]
+    pub core_address: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -44,6 +50,16 @@ impl BridgeFileConfig {
             check_address("bridge.address", &bridge.address)?;
             if !addresses.insert(bridge.address.to_lowercase()) {
                 bail!("Duplicate bridge address: {}", bridge.address);
+            }
+
+            if let Some(core) = &bridge.core_address {
+                check_address("bridge.core_address", core)?;
+                if core.eq_ignore_ascii_case(&bridge.address) {
+                    bail!(
+                        "bridge.core_address duplicates bridge.address: {}",
+                        bridge.address
+                    );
+                }
             }
 
             match bridge.protocol.as_str() {
@@ -127,6 +143,16 @@ address = "0x1a44076050125825900e736c501f859c50fE728c"
         );
 
         assert!(err_of(&contents).contains("Duplicate bridge address"));
+    }
+
+    #[test]
+    fn core_address_must_differ_from_the_bridge_address() {
+        let contents = VALID.replace(
+            "protocol = \"wormhole\"\naddress = \"0x3ee18B2214AFF97000D974cf647E7C347E8fa585\"",
+            "protocol = \"wormhole\"\naddress = \"0x3ee18B2214AFF97000D974cf647E7C347E8fa585\"\ncore_address = \"0x3ee18B2214AFF97000D974cf647E7C347E8fa585\"",
+        );
+
+        assert!(err_of(&contents).contains("bridge.core_address"));
     }
 
     #[test]

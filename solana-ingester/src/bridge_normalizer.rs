@@ -14,7 +14,6 @@ pub struct BridgeNormalizer {
 }
 
 impl BridgeNormalizer {
-    #[expect(dead_code)]
     pub fn program_id(&self) -> &Pubkey {
         &self.program_id
     }
@@ -54,6 +53,7 @@ impl BridgeNormalizer {
         token_symbol: Option<&str>,
         token_decimals: Option<u8>,
         vaa_account: Option<&Pubkey>,
+        published_message: Option<&crate::posted_message::PostedMessage>,
     ) -> Result<Event> {
         let event_id = format!("{}:{}", tx_signature, instruction_index);
 
@@ -75,6 +75,7 @@ impl BridgeNormalizer {
             token_symbol,
             token_decimals,
             vaa_account,
+            published_message,
             &self.rpc_client,
         )
         .await

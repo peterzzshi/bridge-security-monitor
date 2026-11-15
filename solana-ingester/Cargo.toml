@@ -28,6 +28,9 @@ num-bigint = "0.5.1"
 # Hex encoding
 hex = "0.4"
 
+# Program-data log decoding
+base64 = "0.22"
+
 # Logging
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }

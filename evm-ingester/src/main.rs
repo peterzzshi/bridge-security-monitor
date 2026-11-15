@@ -132,11 +132,12 @@ async fn spawn_bridge(
 
     let bridge_address = format!("{:?}", bridge.address);
     let bridge_name = bridge.name.clone();
+    let watched_addresses = bridge.watched_addresses();
     let subscription_shutdown = shutdown.subscribe();
     tasks.spawn(async move {
         if let Err(e) = subscribe_to_logs(
             provider,
-            &bridge_address,
+            &watched_addresses,
             listener,
             event_tx,
             subscription_shutdown,
@@ -157,7 +158,7 @@ async fn spawn_bridge(
 
 async fn subscribe_to_logs<P>(
     provider: Arc<Provider<Ws>>,
-    bridge_address: &str,
+    addresses: &[Address],
     listener: BridgeListener<P>,
     event_tx: mpsc::Sender<Event>,
     mut shutdown: broadcast::Receiver<()>,
@@ -165,12 +166,13 @@ async fn subscribe_to_logs<P>(
 where
     P: Middleware + 'static,
 {
-    let address: Address = bridge_address
-        .parse()
-        .with_context(|| format!("invalid bridge address: {}", bridge_address))?;
+    let bridge_address = addresses
+        .first()
+        .map(|address| format!("{:?}", address))
+        .unwrap_or_default();
 
     let mut stream = provider
-        .subscribe_logs(&Filter::new().address(address))
+        .subscribe_logs(&Filter::new().address(addresses.to_vec()))
         .await
         .context("failed to subscribe to logs")?;
 

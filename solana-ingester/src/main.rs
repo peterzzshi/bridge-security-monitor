@@ -4,6 +4,7 @@ mod bridge_file_config;
 mod bridge_handler;
 mod bridge_normalizer;
 mod config;
+mod posted_message;
 mod rpc_retry;
 mod vaa_parser;
 
