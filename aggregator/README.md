@@ -1,8 +1,9 @@
 # Aggregator
 
-Apache Flink 2 job (Java 21) consuming bridge events from Kafka and producing five alert streams.
+Apache Flink 2 job (Java 21) consuming bridge events from Kafka and producing seven alert streams.
 
-`io.github.peterzzshi.bridge.BridgeStreamProcessor` builds five pipelines over the two ingest topics
+`io.github.peterzzshi.bridge.BridgeStreamProcessor` builds seven pipelines over the two ingest
+topics
 and sinks each one to its own Kafka topic. See root
 [ARCHITECTURE.md](../ARCHITECTURE.md#event-to-alert-mapping) for the event-to-alert contract.
 
@@ -31,4 +32,4 @@ The shaded jar declares `BridgeStreamProcessor` as its main class, so
 `java -jar target/aggregator-1.0-SNAPSHOT.jar` starts the job directly, as does
 `flink run -c io.github.peterzzshi.bridge.BridgeStreamProcessor`.
 
-Flink UI: <http://localhost:8081>. One job, five sink vertices.
+Flink UI: <http://localhost:8081>. One job, seven sink vertices.

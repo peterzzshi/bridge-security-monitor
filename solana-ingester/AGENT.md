@@ -19,4 +19,4 @@ Extends root `AGENT.md` (including its Rust ingesters section).
 - Dependencies: `solana-client` / `solana-sdk` / `solana-transaction-status` (the latter needs the
   `agave-unstable-api` feature for instruction parsing); `warp` with the `server` feature for
   `warp::serve()`. No price or token-metadata crate — enrichment is not implemented.
-- Protocol values are `wormhole` and `allbridge` only; both are validated at load.
+- Protocol values are `wormhole` only; validated at load.

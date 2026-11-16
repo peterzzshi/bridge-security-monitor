@@ -12,6 +12,6 @@ Extends root `AGENT.md`.
   route handlers suspension-only; do not add blocking calls to them.
 - Testing: pure-behavior tests against real fakes; no mocking framework. Inject dependencies
   (`AlertStore`, `AlertBroadcaster` with an overridden `broadcast`) rather than stubbing frameworks.
-  There is currently one test, `RedisAlertStoreTest` — new behavior needs a test beside it.
+  New behavior needs a test beside it.
 - WebSocket filters live in `AlertFilters` and are applied server-side in `AlertBroadcaster`; a new
   alert type must be added to `AlertFilters.matches` or `chain` filtering silently breaks for it.

@@ -1,7 +1,11 @@
 # evm-ingester
 
 Subscribes to bridge contract events on an EVM chain over a WebSocket RPC, waits for block-depth
-finality, and publishes `BridgeTransferEvent` / `BridgeSupplyEvent` records to Kafka via Dapr.
+finality, and publishes `BridgeTransferEvent` records to Kafka via Dapr.
+
+The EVM decoder handles Wormhole lock/unlock and LayerZero packet send/verify. It emits no
+`BridgeSupplyEvent`: the Wormhole token bridge on Ethereum operates in lock/unlock mode, so value
+movement appears as a transfer rather than a supply change.
 
 One process serves every bridge in its config file, each with its own listener task. The design is
 one instance per EVM chain — same binary, different config — publishing to the same topics as the

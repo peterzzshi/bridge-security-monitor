@@ -25,8 +25,9 @@ Invariants:
 
 - Bridge identity is `(chain, bridgeAddress)`, never bare `bridgeAddress`. The one exception is the
   Cross-Chain Flow pipeline, which keys on the bridge alone to compare chains.
-- Enrichment (token symbols) happens in the ingester at ingest time, so Flink replay reproduces the
-  same values. It is currently unimplemented — symbols are null.
+- Token metadata (symbol, decimals) is resolved from the bridge TOML table at ingest time rather
+  than
+  in Flink, so a replay reproduces the same values. Nothing beyond symbol/decimals is enriched.
 - Each ingest topic carries exactly one record type. `bridge-transfer-events` is
   `BridgeTransferEvent`; `bridge-supply-events` is `BridgeSupplyEvent`.
 - Alert values on Kafka are Avro binary inside a CloudEvent, not JSON.

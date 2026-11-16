@@ -41,10 +41,12 @@ not on first request.
 
 ### Dapr
 
-- `POST /dapr/subscribe` — returns the five subscriptions (Dapr also loads the declarative
+- `POST /dapr/subscribe` — returns the seven subscriptions (Dapr also loads the declarative
   subscriptions from `../dapr/subscriptions/alerting-subscriptions.yaml`)
-- `POST /events/{transfer-volume,supply-tracking,cross-chain-flow,exploit-detection,reentrancy}` —
-  CloudEvent handler per topic
+-
+
+`POST /events/{transfer-volume,supply-tracking,cross-chain-flow,exploit-detection,reentrancy,unusual-size,cross-chain-correlation}`
+— CloudEvent handler per topic
 
 ## Message Format
 

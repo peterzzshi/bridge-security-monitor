@@ -201,8 +201,10 @@ services:
         FLINK_PROPERTIES=
         jobmanager.rpc.address: flink-jobmanager
       - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
-      - BRIDGE_TRANSFER_TOPIC=${TOPIC_TRANSFER}
-      - BRIDGE_SUPPLY_TOPIC=${TOPIC_SUPPLY}
+      # Literal topic names: `${TOPIC_*}` would interpolate from the shell/.env,
+      # not from the x-topics anchor, and resolve to empty strings.
+      - BRIDGE_TRANSFER_TOPIC=bridge-transfer-events
+      - BRIDGE_SUPPLY_TOPIC=bridge-supply-events
       - WATERMARK_DELAY_SECONDS=5
       - TRANSFER_WINDOW_SECONDS=300
       - SUPPLY_WINDOW_SECONDS=300

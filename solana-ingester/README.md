@@ -33,8 +33,10 @@ Health check: `GET http://localhost:<APP_PORT>/health`.
   latency and carries no reorg risk.
 - **Gas data**: the transaction fee goes in `gasUsed` and `gasPrice` is the string `"0"` — Solana has
   no gas price.
-- **No burn events**: no burn instruction is configured, so Solana contributes lock, unlock and mint
-  records only. Supply-side drain detection is currently EVM-only (see `../GAPS.md`).
+- **Event coverage**: all four Portal instructions are decoded — `TransferNative` (lock),
+  `TransferWrapped` (burn), `CompleteNative` (unlock) and `CompleteWrapped` (mint). Amounts come
+  from
+  instruction bytes for the outgoing legs and from the VAA for the incoming legs.
 - **Failure visibility**: publishes retry with backoff, then fall back to `TOPIC_DLQ`. An unreachable
   Dapr sidecar logs and exits. Decode failures are logged and the transaction is skipped. No metrics
   exporter.

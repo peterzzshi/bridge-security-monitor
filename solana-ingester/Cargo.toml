@@ -41,8 +41,5 @@ anyhow = "1"
 # Random number generation (for retry jitter)
 rand = "0.10.3"
 
-# HTTP client for enrichment
-reqwest = { version = "0.11", features = ["json"] }
-
 # HTTP server for health checks
 warp = { version = "0.4.3", features = ["server"] }

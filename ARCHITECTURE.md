@@ -68,7 +68,7 @@ SVC --> WS[WebSocket fan-out]
 | Transfer Volume         | transfer | `bridgeAddress:chain`       | 5-min tumbling                     | `bridge-alerts-transfer-volume`         |
 | Supply Tracking         | supply   | `bridgeAddress:chain`       | 5-min tumbling                     | `bridge-alerts-supply-tracking`         |
 | Cross-Chain Flow        | union    | `bridgeAddress`             | 5-min tumbling                     | `bridge-alerts-cross-chain-flow`        |
-| Exploit Detection       | union    | `bridgeAddress:chain`       | 60-s session                       | `bridge-alerts-exploit-detection`       |
+| Exploit Detection       | union    | `protocol`                  | 60-s session                       | `bridge-alerts-exploit-detection`       |
 | Reentrancy              | transfer | `transactionHash`           | 5-s tumbling                       | `bridge-alerts-reentrancy`              |
 | Unusual Size            | transfer | `bridgeAddress:chain:token` | 5-min tumbling                     | `bridge-alerts-unusual-size`            |
 | Cross-Chain Correlation | transfer | `messageHash`               | session, `CORRELATION_GAP_SECONDS` | `bridge-alerts-cross-chain-correlation` |
@@ -118,7 +118,7 @@ Three field assumptions that outlive any schema edit:
 
 `protocol` is an Avro enum, validated at config load, again on schema decode (an unknown symbol
 fails), and by the Flink type system thereafter. No string comparisons in the hot path. The schema
-declares `wormhole`, `layerzero` and a reserved `hop`; only the first two have decoders.
+declares exactly the protocols with decoders — `wormhole` and `layerzero`.
 
 ### Finality
 
@@ -163,8 +163,8 @@ transport failure is never silently mistaken for "no data".
 
 ### Severity Thresholds
 
-Computed in `AlertSeverity`, calibrated for demo-level activity. Amounts reach the aggregator at
-18-decimal fixed point (`common/src/amount.rs`), so thresholds are compared as raw `BigInteger` units.
+Computed in `AlertSeverity`. Amounts reach the aggregator at 18-decimal fixed point
+(`common/src/amount.rs`) and are compared as raw `BigInteger` units — one whole token is `10^18`.
 
 | Alert | LOW → CRITICAL |
 |---|---|
@@ -173,6 +173,10 @@ Computed in `AlertSeverity`, calibrated for demo-level activity. Amounts reach t
 | Cross-Chain Flow | imbalance ratio ≥ 0.15 → > 0.5 |
 | Exploit Detection | 1 pattern → > 2 patterns |
 | Reentrancy | 2 calls → > 5 calls |
+
+The volume and supply tiers are uncalibrated: the constants were written as if amounts were whole
+tokens, so `TRANSFER_MEDIUM = 10_000` raw units is `10^-14` tokens and every non-trivial transfer
+clears CRITICAL. The ratio- and count-based tiers are unaffected. See `GAPS.md`.
 
 ### Exploit Detection Patterns
 
@@ -183,9 +187,15 @@ Session window (60-s gap), evaluated per `(bridge, chain)`:
 3. **SUPPLY_MISMATCH** — netLocked vs netMinted differ by more than 10%
 
 The remaining patterns run in their own pipelines with their own alert types, not in this function:
-`UNUSUAL_SIZE` (>3 stddev via Welford's algorithm, per token) and cross-chain correlation (session
-window keyed on `message_hash`). New-address detection is intentionally not implemented — it needs
-external or unbounded state and does not justify the complexity.
+`UNUSUAL_SIZE` (per-token Welford mean/variance) and cross-chain correlation (session window keyed
+on
+`message_hash`). New-address detection is intentionally not implemented — it needs external or
+unbounded state and does not justify the complexity.
+
+`UNUSUAL_SIZE` currently reports the window's `count`/`mean`/`stddev` and sets severity from event
+count alone (`AlertSeverity.compute(UnusualSizeAccumulator)`): MEDIUM at 100+ events, otherwise LOW.
+There is no z-score comparison, so it is a per-token summary rather than an anomaly trigger — the
+defect and its fix are in `GAPS.md`.
 
 ## Known Limitations
 

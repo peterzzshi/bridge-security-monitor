@@ -1,39 +1,43 @@
 # Bridge Security Monitor
 
 Real-time exploit detection for cross-chain bridges. Ingests lock/unlock and mint/burn events from
-Wormhole, LayerZero and Hop on Ethereum and from Wormhole Portal and Allbridge on Solana, aggregates
-them in Flink, and pushes severity-ranked alerts to a WebSocket.
+Wormhole and LayerZero on Ethereum and from Wormhole Portal on Solana, aggregates them in Flink, and
+pushes severity-ranked alerts to a WebSocket.
 
-Bridges are the highest-value target in DeFi, and the damage is done in the first minutes of an
-exploit — so the interesting question is not "what happened last week" but "is this bridge behaving
-outside its normal envelope right now". This pipeline answers that with windows over finalized
-events, not sampled block-by-block state.
+Bridges are the highest-value target in DeFi, and the damage is done in the first minutes — so the
+interesting question is not "what happened last week" but "is this bridge behaving outside its
+normal
+envelope right now". This pipeline answers that with windows over finalized events.
 
 ## What It Detects
 
-Five windowed pipelines, each emitting to its own Kafka topic as an Avro alert:
+Seven pipelines, each emitting an Avro alert to its own Kafka topic:
 
-| Signal | Window | What it fires on |
-|---|---|---|
-| Transfer volume | 5 min | Lock/unlock totals per `(bridge, chain)` cross size thresholds |
-| Supply tracking | 5 min | Net minted/burned; **burn-only with no mints is critical** (drain pattern) |
-| Cross-chain flow | 5 min | Inflow/outflow imbalance per bridge across chains |
-| Exploit patterns | 60 s session | Rapid transfers (>10 events), large single transfer, lock/mint supply mismatch |
-| Reentrancy | 5 s | More than one lock or unlock in a single transaction hash |
+| Signal                  | Window       | Fires on                                                                   |
+|-------------------------|--------------|----------------------------------------------------------------------------|
+| Transfer volume         | 5 min        | Lock/unlock totals per `(bridge, chain)` cross size thresholds             |
+| Supply tracking         | 5 min        | Net minted/burned; **burn-only with no mints is critical** (drain pattern) |
+| Cross-chain flow        | 5 min        | Inflow/outflow imbalance for one bridge across chains                      |
+| Exploit patterns        | 60 s session | Rapid transfers, large single transfer, lock/mint supply mismatch          |
+| Reentrancy              | 5 s          | More than one lock or unlock in a single transaction hash                  |
+| Unusual size            | 5 min        | Per-token Welford mean/variance over transfer amounts                      |
+| Cross-chain correlation | session      | A lock and its matching unlock, joined on `message_hash`                   |
 
 ## Pipeline
 
-| Component | Language | Role |
-|---|---|---|
-| `evm-ingester/` | Rust | `eth_subscribe` logs from Ethereum; 12-block depth finality |
-| `solana-ingester/` | Rust | `logsSubscribe` + finalized-slot polling |
-| `aggregator/` | Java 21 / Flink | 5 windowed pipelines, Avro sinks |
-| `alerting-service/` | Kotlin / Ktor | Dapr consumer, Redis recent-alert cache, WebSocket fan-out |
-| `dapr/` | YAML | Kafka pub/sub component and alert subscriptions |
+| Component           | Language        | Role                                                       |
+|---------------------|-----------------|------------------------------------------------------------|
+| `evm-ingester/`     | Rust            | `eth_subscribe` logs; 12-block depth finality              |
+| `solana-ingester/`  | Rust            | `logsSubscribe` + finalized-slot polling                   |
+| `aggregator/`       | Java 21 / Flink | Seven windowed pipelines, Avro sinks                       |
+| `alerting-service/` | Kotlin / Ktor   | Dapr consumer, Redis recent-alert cache, WebSocket fan-out |
+| `dapr/`             | YAML            | Kafka pub/sub component and alert subscriptions            |
 
 `common/` is the shared Rust crate: config, Avro encoding, CloudEvents envelope, retry, finality
-buffer, publisher. Event and alert schemas live once in root `schemas/` and are codegen'd by both the
-Maven and Gradle builds. See [ARCHITECTURE.md](ARCHITECTURE.md) for the flow between them.
+buffer, amount normalization, publisher. Event and alert schemas live once in root `schemas/` and
+are
+codegen'd by both the Maven and Gradle builds. See [ARCHITECTURE.md](ARCHITECTURE.md) for the flow
+between them and the reasoning behind each decision.
 
 ## Quick Start
 
@@ -60,13 +64,12 @@ and `?alertTypes=`.
 This is a post-finality detector, not a pre-execution shield. An EVM event is published only after 12
 confirmations (~2.4 min) and then has to clear a 5 s watermark and a window boundary. Solana finality
 polling lands around 13 s. Nobody is front-run — the goal is to fire before an exploit has finished
-draining, which most of these windows can do, and before a human watching dashboards would notice,
-which they reliably do.
+draining, and before a human watching dashboards would notice.
 
 ## Documentation
 
 - [ARCHITECTURE.md](ARCHITECTURE.md) — data flow, design decisions, alert semantics
-- [GAPS.md](GAPS.md) — known limitations and outstanding defects
+- [GAPS.md](GAPS.md) — accepted limitations and open defects
 - [AGENT.md](AGENT.md) — conventions and commands
 
 Each component directory has its own `README.md`.
