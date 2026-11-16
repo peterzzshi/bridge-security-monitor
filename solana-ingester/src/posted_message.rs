@@ -222,4 +222,27 @@ mod tests {
             "ambiguous candidates must not be guessed at"
         );
     }
+
+    /// Wormhole encodes EVM addresses in VAAs as 20-byte addresses left-padded to 32 bytes.
+    /// The EVM lock side produces the same padding via `wormhole_emitter`. Both decoders must
+    /// agree on this format or every transfer produces a spurious LOCK_WITHOUT_UNLOCK pair.
+    /// A parallel assertion lives in `evm-ingester/src/bridge_decoder.rs`.
+    #[test]
+    fn evm_padded_emitter_matches_evm_lock_hash_format() {
+        let mut emitter_address = [0u8; 32];
+        let bridge = hex::decode("3ee18b2214aff97000d974cf647e7c347e8fa585").unwrap();
+        emitter_address[12..].copy_from_slice(&bridge);
+
+        let message = PostedMessage {
+            emitter_chain: 2,
+            emitter_address,
+            sequence: 42,
+            payload: vec![],
+        };
+
+        assert_eq!(
+            message.message_hash(),
+            "2:0000000000000000000000003ee18b2214aff97000d974cf647e7c347e8fa585:42"
+        );
+    }
 }

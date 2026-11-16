@@ -649,4 +649,19 @@ mod tests {
 
         assert!(matches!(outcome, DecodeOutcome::NotReported));
     }
+
+    /// The Solana unlock path reads the emitter address out of a VAA as 32 raw bytes and
+    /// hex-encodes them. This test locks that the EVM lock side produces the same zero-padded
+    /// representation, so both decoders agree on the `message_hash` for the same transfer.
+    /// A parallel assertion lives in `solana-ingester/src/posted_message.rs`.
+    #[test]
+    fn evm_emitter_left_pads_address_to_32_bytes_matching_vaa_format() {
+        let (chain, emitter_hex) = wormhole_emitter(bridge_address(), 2);
+        let hash = format!("{}:{}:{}", chain, emitter_hex, SEQUENCE);
+
+        assert_eq!(
+            hash,
+            "2:0000000000000000000000003ee18b2214aff97000d974cf647e7c347e8fa585:42"
+        );
+    }
 }

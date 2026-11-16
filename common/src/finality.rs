@@ -483,11 +483,7 @@ mod tests {
 
         // Buffer should have evicted to stay under the 5-event limit
         let pending = buffer.pending();
-        assert!(
-            pending <= 5,
-            "Expected pending <= 5 after burst, got {}",
-            pending
-        );
+        assert_eq!(pending, 4);
     }
 
     #[test]
@@ -502,11 +498,7 @@ mod tests {
         // Buffer should have evicted to stay under the 3-block limit
         let inner = buffer.inner.lock().unwrap();
         let pending_blocks = inner.pending.len();
-        assert!(
-            pending_blocks <= 3,
-            "Expected pending blocks <= 3 after burst, got {}",
-            pending_blocks
-        );
+        assert_eq!(pending_blocks, 3);
     }
 
     #[test]
@@ -522,16 +514,8 @@ mod tests {
         let pending_blocks = inner.pending.len();
         let pending_events: usize = inner.pending.values().map(|v| v.len()).sum();
 
-        assert!(
-            pending_blocks <= 2,
-            "Expected pending blocks <= 2, got {}",
-            pending_blocks
-        );
-        assert!(
-            pending_events <= 3,
-            "Expected pending events <= 3, got {}",
-            pending_events
-        );
+        assert_eq!(pending_blocks, 2);
+        assert_eq!(pending_events, 2);
     }
 
     #[test]
@@ -564,15 +548,7 @@ mod tests {
         let pending_blocks = inner.pending.len();
         let pending_events: usize = inner.pending.values().map(|v| v.len()).sum();
 
-        assert!(
-            pending_blocks <= 2,
-            "Expected pending blocks <= 2 in depth mode, got {}",
-            pending_blocks
-        );
-        assert!(
-            pending_events <= 3,
-            "Expected pending events <= 3 in depth mode, got {}",
-            pending_events
-        );
+        assert_eq!(pending_blocks, 2);
+        assert_eq!(pending_events, 2);
     }
 }
